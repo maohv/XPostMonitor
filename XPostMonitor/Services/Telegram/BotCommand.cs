@@ -1,7 +1,8 @@
-namespace XPostMonitor.Services;
+namespace XPostMonitor.Services.Telegram;
 
 public sealed class BotCommand
 {
+    // Lưu tên lệnh đã tách và tham số đi kèm.
     public BotCommand(string name, string? argument)
     {
         Name = name;
@@ -11,6 +12,7 @@ public sealed class BotCommand
     public string Name { get; }
     public string? Argument { get; }
 
+    // Tách tin nhắn Telegram thành tên lệnh và tham số, ví dụ: "/add binancezh".
     public static BotCommand? Parse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))

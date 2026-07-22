@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace XPostMonitor.Dtos;
 
-// Cac DTO nay mo ta JSON ma Telegram API gui ve.
+// Các DTO này mô tả JSON mà Telegram API gửi về.
 public class TelegramBasicResponse
 {
     [JsonPropertyName("ok")]
@@ -16,6 +16,18 @@ public sealed class TelegramUpdatesResponse : TelegramBasicResponse
 {
     [JsonPropertyName("result")]
     public List<TelegramUpdate>? Result { get; set; }
+}
+
+public sealed class TelegramChatMemberResponse : TelegramBasicResponse
+{
+    [JsonPropertyName("result")]
+    public TelegramChatMember? Result { get; set; }
+}
+
+public sealed class TelegramChatMember
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
 }
 
 public sealed class TelegramUpdate
