@@ -7,3 +7,4 @@
 
 # Local secrets and machine-specific settings
 appsettings.Local.json
+XPostMonitor/appsettings.Development.json
