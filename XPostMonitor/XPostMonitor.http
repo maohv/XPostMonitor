@@ -1,0 +1,6 @@
+@XPostMonitor_HostAddress = http://localhost:5123
+
+GET {{XPostMonitor_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

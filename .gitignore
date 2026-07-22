@@ -1,0 +1,9 @@
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.tmp
+
+# Local secrets and machine-specific settings
+appsettings.Local.json
