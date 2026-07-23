@@ -5,6 +5,8 @@ public sealed class XAccount
     public string XUserId { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string? DisplayName { get; set; }
+    public string? LastPostId { get; set; }
+    public long? TelegramChannelId { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 

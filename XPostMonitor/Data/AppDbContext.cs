@@ -5,6 +5,7 @@ namespace XPostMonitor.Data;
 
 public sealed class AppDbContext : DbContext
 {
+    // Nhận cấu hình kết nối database từ dependency injection.
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
     }
@@ -14,6 +15,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<WatchlistEntry> WatchlistEntries { get; set; } = null!;
     public DbSet<XSubscription> XSubscriptions { get; set; } = null!;
 
+    // Khai báo khóa chính, độ dài cột và quan hệ giữa các bảng.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<TelegramUser>(entity =>
@@ -30,6 +32,7 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.XUserId).HasMaxLength(20);
             entity.Property(x => x.Username).HasMaxLength(50);
             entity.Property(x => x.DisplayName).HasMaxLength(100);
+            entity.Property(x => x.LastPostId).HasMaxLength(20);
             entity.HasIndex(x => x.Username).IsUnique();
         });
 
