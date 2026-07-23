@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Configuration;
 using XPostMonitor.Data;
@@ -6,6 +7,7 @@ using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.OpenAi;
 using XPostMonitor.Services.Telegram;
+using XPostMonitor.Services.Telegram.Localization;
 using XPostMonitor.Services.X;
 using XPostMonitor.Services.X.Channels;
 using XPostMonitor.Services.X.Notifications;
@@ -18,6 +20,7 @@ builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.None);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddDataProtection().SetApplicationName("XPostMonitor");
 
 BotOptions botOptions = new BotOptions();
 builder.Configuration.GetSection(BotOptions.SectionName).Bind(botOptions);
@@ -61,15 +64,23 @@ builder.Services.AddHttpClient<FluxClient>(client =>
 
 // Các service xử lý chức năng thông thường.
 builder.Services.AddSingleton<WatchlistService>();
+builder.Services.AddSingleton<BotTextService>();
+builder.Services.AddSingleton<LanguageMenuService>();
+builder.Services.AddSingleton<ManualTokenMenuService>();
+builder.Services.AddSingleton<WatchlistMenuService>();
+builder.Services.AddSingleton<TradingSettingsMenuService>();
 builder.Services.AddSingleton<ChannelWatchlistService>();
 builder.Services.AddSingleton<PremiumService>();
 builder.Services.AddSingleton<GmgnClient>();
+builder.Services.AddSingleton<TradingSettingsService>();
 builder.Services.AddSingleton<TokenPreviewService>();
+builder.Services.AddSingleton<TokenCreationService>();
 builder.Services.AddSingleton<PostNotificationService>();
 builder.Services.AddSingleton<TelegramNotificationService>();
 
 // Các background service chạy độc lập và không phải chờ nhau hoàn thành.
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<TelegramNotificationService>());
+builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<TokenCreationService>());
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PostNotificationService>());
 builder.Services.AddHostedService<XRuleSyncService>();
 builder.Services.AddHostedService<XStreamService>();

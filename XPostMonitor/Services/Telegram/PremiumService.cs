@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
+using XPostMonitor.Services.Telegram.Localization;
 
 namespace XPostMonitor.Services.Telegram;
 
@@ -9,10 +10,12 @@ namespace XPostMonitor.Services.Telegram;
 public sealed class PremiumService
 {
     private readonly IServiceScopeFactory scopeFactory;
+    private readonly BotTextService text;
 
-    public PremiumService(IServiceScopeFactory scopeFactory)
+    public PremiumService(IServiceScopeFactory scopeFactory, BotTextService text)
     {
         this.scopeFactory = scopeFactory;
+        this.text = text;
     }
 
     // Người dùng phải gửi /start ít nhất một lần để bot lưu username.
@@ -29,7 +32,8 @@ public sealed class PremiumService
             {
                 ChatId = chatId,
                 TelegramUserId = sender.Id,
-                CreatedAtUtc = now
+                CreatedAtUtc = now,
+                LanguageCode = BotTextService.Normalize(sender.LanguageCode)
             };
             db.TelegramUsers.Add(user);
         }
@@ -43,6 +47,27 @@ public sealed class PremiumService
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<string> GetLanguageAsync(long chatId, CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        string? language = await db.TelegramUsers.Where(user => user.ChatId == chatId)
+            .Select(user => user.LanguageCode).FirstOrDefaultAsync(cancellationToken);
+        return BotTextService.Normalize(language);
+    }
+
+    public async Task SetLanguageAsync(long chatId, string language, CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        TelegramUser? user = await db.TelegramUsers.FindAsync([chatId], cancellationToken);
+        if (user != null)
+        {
+            user.LanguageCode = BotTextService.Normalize(language);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
     // Chỉ người có IsPremium = true mới được dùng /add, /remove và /list.
     public async Task<bool> IsPremiumAsync(long chatId, CancellationToken cancellationToken)
     {
@@ -52,19 +77,19 @@ public sealed class PremiumService
     }
 
     // Admin bật Premium cho một username đã từng gửi /start.
-    public Task<string> AddAsync(string? username, CancellationToken cancellationToken)
+    public Task<string> AddAsync(string? username, string language, CancellationToken cancellationToken)
     {
-        return SetPremiumAsync(username, true, cancellationToken);
+        return SetPremiumAsync(username, true, language, cancellationToken);
     }
 
     // Admin tắt Premium nhưng vẫn giữ lại watchlist cũ của người dùng.
-    public Task<string> RemoveAsync(string? username, CancellationToken cancellationToken)
+    public Task<string> RemoveAsync(string? username, string language, CancellationToken cancellationToken)
     {
-        return SetPremiumAsync(username, false, cancellationToken);
+        return SetPremiumAsync(username, false, language, cancellationToken);
     }
 
     // Hiển thị toàn bộ username đang có Premium.
-    public async Task<string> ListAsync(CancellationToken cancellationToken)
+    public async Task<string> ListAsync(string language, CancellationToken cancellationToken)
     {
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -75,17 +100,16 @@ public sealed class PremiumService
             .ToListAsync(cancellationToken);
 
         return usernames.Count == 0
-            ? "No Premium users."
-            : "Premium users:\n" + string.Join("\n", usernames);
+            ? text.Get(language, "PremiumNone")
+            : text.Get(language, "PremiumList", string.Join("\n", usernames));
     }
 
-    private async Task<string> SetPremiumAsync(string? username, bool isPremium, CancellationToken cancellationToken)
+    private async Task<string> SetPremiumAsync(string? username, bool isPremium, string language,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(username))
         {
-            return isPremium
-                ? "Usage: /premiumadd username"
-                : "Usage: /premiumremove username";
+            return text.Get(language, isPremium ? "PremiumAddUsage" : "PremiumRemoveUsage");
         }
 
         string normalizedUsername = username.Trim().TrimStart('@').ToLowerInvariant();
@@ -98,14 +122,12 @@ public sealed class PremiumService
 
         if (user == null)
         {
-            return "User not found. Ask them to send /start to this bot first.";
+            return text.Get(language, "UserNotFound");
         }
 
         user.IsPremium = isPremium;
         await db.SaveChangesAsync(cancellationToken);
 
-        return isPremium
-            ? "Premium enabled for @" + user.Username + "."
-            : "Premium disabled for @" + user.Username + ".";
+        return text.Get(language, isPremium ? "PremiumEnabled" : "PremiumDisabled", user.Username);
     }
 }

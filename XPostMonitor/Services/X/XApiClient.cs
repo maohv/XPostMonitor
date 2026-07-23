@@ -44,6 +44,26 @@ public sealed class XApiClient
         throw new HttpRequestException("X API: " + errorMessage, null, response.StatusCode);
     }
 
+    // Đọc một Post khi Premium user gửi link X để tạo token thủ công.
+    public async Task<XStreamPostResponse> GetPostAsync(string postId, CancellationToken cancellationToken)
+    {
+        string url = "2/tweets/" + Uri.EscapeDataString(postId)
+            + "?tweet.fields=created_at,referenced_tweets,author_id,in_reply_to_user_id,attachments"
+            + "&expansions=author_id,in_reply_to_user_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys,referenced_tweets.id.attachments.media_keys"
+            + "&user.fields=name,username,profile_image_url,public_metrics"
+            + "&media.fields=media_key,type,url,preview_image_url";
+
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, url);
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        XStreamPostResponse? result = await response.Content
+            .ReadFromJsonAsync<XStreamPostResponse>(cancellationToken);
+        return result?.Data == null
+            ? throw new HttpRequestException("X API did not return the Post.")
+            : result;
+    }
+
     // Lấy toàn bộ Filtered Stream rule hiện có trên X.
     public async Task<List<XStreamRule>> GetStreamRulesAsync(CancellationToken cancellationToken)
     {

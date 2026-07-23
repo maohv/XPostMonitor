@@ -6,6 +6,7 @@ using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.OpenAi;
 using XPostMonitor.Services.X;
 using XPostMonitor.Services.X.Channels;
+using XPostMonitor.Services.Telegram.Localization;
 
 namespace XPostMonitor.Services.Telegram;
 
@@ -14,8 +15,13 @@ public sealed class TelegramBotService : BackgroundService
 {
     private readonly TelegramApiClient telegramApi;
     private readonly WatchlistService watchlistService;
+    private readonly WatchlistMenuService watchlistMenu;
+    private readonly TradingSettingsMenuService tradingSettingsMenu;
     private readonly ChannelWatchlistService channelWatchlistService;
     private readonly PremiumService premiumService;
+    private readonly LanguageMenuService languageMenu;
+    private readonly ManualTokenMenuService manualTokenMenu;
+    private readonly BotTextService text;
     private readonly GmgnClient gmgnClient;
     private readonly OpenAiClient openAiClient;
     private readonly FluxClient fluxClient;
@@ -28,15 +34,23 @@ public sealed class TelegramBotService : BackgroundService
 
     // Nhận các service cần dùng qua dependency injection.
     public TelegramBotService(TelegramApiClient telegramApi,
-        WatchlistService watchlistService, ChannelWatchlistService channelWatchlistService,
-        PremiumService premiumService, GmgnClient gmgnClient, OpenAiClient openAiClient, FluxClient fluxClient,
+        WatchlistService watchlistService, WatchlistMenuService watchlistMenu,
+        TradingSettingsMenuService tradingSettingsMenu, ChannelWatchlistService channelWatchlistService,
+        PremiumService premiumService, LanguageMenuService languageMenu, ManualTokenMenuService manualTokenMenu,
+        BotTextService text,
+        GmgnClient gmgnClient, OpenAiClient openAiClient, FluxClient fluxClient,
         TokenPreviewService tokenPreviewService, BotOptions options,
         ILogger<TelegramBotService> logger)
     {
         this.telegramApi = telegramApi;
         this.watchlistService = watchlistService;
+        this.watchlistMenu = watchlistMenu;
+        this.tradingSettingsMenu = tradingSettingsMenu;
         this.channelWatchlistService = channelWatchlistService;
         this.premiumService = premiumService;
+        this.languageMenu = languageMenu;
+        this.manualTokenMenu = manualTokenMenu;
+        this.text = text;
         this.gmgnClient = gmgnClient;
         this.openAiClient = openAiClient;
         this.fluxClient = fluxClient;
@@ -90,6 +104,10 @@ public sealed class TelegramBotService : BackgroundService
             {
                 await HandleCommandAsync(update.Message, cancellationToken);
             }
+            else if (update.CallbackQuery?.Data != null)
+            {
+                await HandleCallbackAsync(update.CallbackQuery, cancellationToken);
+            }
         }
     }
 
@@ -98,7 +116,32 @@ public sealed class TelegramBotService : BackgroundService
     {
         if (message.Chat.Type != "private" || message.From == null)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "This bot currently supports private chats only.", cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id,
+                text.Get(message.From?.LanguageCode, "PrivateOnly"), cancellationToken);
+            return;
+        }
+
+        await premiumService.RegisterUserAsync(message.Chat.Id, message.From, cancellationToken);
+        string language = await premiumService.GetLanguageAsync(message.Chat.Id, cancellationToken);
+
+        if (!message.Text!.StartsWith('/')
+            && await tradingSettingsMenu.HandlePendingInputAsync(message, cancellationToken))
+        {
+            return;
+        }
+
+        if (!message.Text.StartsWith('/'))
+        {
+            bool canUsePersonalBot = enablePersonalBot
+                && await premiumService.IsPremiumAsync(message.Chat.Id, cancellationToken);
+            if (!canUsePersonalBot)
+            {
+                await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "PersonalClosed"),
+                    cancellationToken);
+                return;
+            }
+
+            await manualTokenMenu.StartAsync(message.Chat.Id, message.Text, language, cancellationToken);
             return;
         }
 
@@ -108,80 +151,140 @@ public sealed class TelegramBotService : BackgroundService
             return;
         }
 
-        await premiumService.RegisterUserAsync(message.Chat.Id, message.From, cancellationToken);
+        if (command.Name == "/language")
+        {
+            await languageMenu.ShowAsync(message.Chat.Id, language, cancellationToken);
+            return;
+        }
 
         if (command.Name.StartsWith("/channel", StringComparison.Ordinal))
         {
-            await HandleChannelCommandAsync(message, command, cancellationToken);
+            await HandleChannelCommandAsync(message, command, language, cancellationToken);
             return;
         }
 
         if (command.Name.StartsWith("/premium", StringComparison.Ordinal))
         {
-            await HandlePremiumCommandAsync(message, command, cancellationToken);
+            await HandlePremiumCommandAsync(message, command, language, cancellationToken);
             return;
         }
 
         if (command.Name.StartsWith("/gmgn", StringComparison.Ordinal))
         {
-            await HandleGmgnCommandAsync(message, command, cancellationToken);
+            await HandleGmgnCommandAsync(message, command, language, cancellationToken);
             return;
         }
 
         if (command.Name.StartsWith("/ai", StringComparison.Ordinal))
         {
-            await HandleAiCommandAsync(message, command, cancellationToken);
+            await HandleAiCommandAsync(message, command, language, cancellationToken);
             return;
         }
 
         if (command.Name.StartsWith("/flux", StringComparison.Ordinal))
         {
-            await HandleFluxCommandAsync(message, command, cancellationToken);
+            await HandleFluxCommandAsync(message, command, language, cancellationToken);
             return;
         }
 
         if (command.Name == "/tokenpreview")
         {
-            await HandleTokenPreviewCommandAsync(message, command, cancellationToken);
+            await HandleTokenPreviewCommandAsync(message, command, language, cancellationToken);
             return;
         }
 
         bool hasPremium = enablePersonalBot && await premiumService.IsPremiumAsync(message.Chat.Id, cancellationToken);
 
         string reply;
-        if (command.Name is "/start" or "/help")
+        if (command.Name == "/admin")
         {
             bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From.Id, cancellationToken);
-
-            reply = isAdmin
-                ? AdminHelpText + (hasPremium ? "\n\n" + PersonalHelpText : string.Empty)
-                : hasPremium ? PersonalHelpText : PersonalBotClosedText;
+            reply = isAdmin ? text.Get(language, "AdminHelp") : text.Get(language, "AdminOnly");
+        }
+        else if (command.Name is "/start" or "/help")
+        {
+            reply = hasPremium ? text.Get(language, "PersonalHelp") : text.Get(language, "PersonalClosed");
         }
         else if (!hasPremium)
         {
-            reply = PersonalBotClosedText;
+            reply = text.Get(language, "PersonalClosed");
         }
         else
         {
+            if (command.Name == "/add")
+            {
+                await watchlistMenu.StartAddAsync(message.Chat.Id, command.Argument, language, cancellationToken);
+                return;
+            }
+
+            if (command.Name == "/settings")
+            {
+                await tradingSettingsMenu.ShowAsync(message.Chat.Id, cancellationToken);
+                return;
+            }
+
             reply = command.Name switch
             {
-                "/add" => await watchlistService.AddAsync(message.Chat.Id, command.Argument, cancellationToken),
-                "/remove" => await watchlistService.RemoveAsync(message.Chat.Id, command.Argument, cancellationToken),
-                "/list" => await watchlistService.ListAsync(message.Chat.Id, cancellationToken),
-                _ => "Unknown command. Use /help."
+                "/remove" => await watchlistService.RemoveAsync(message.Chat.Id, command.Argument, language,
+                    cancellationToken),
+                "/list" => await watchlistService.ListAsync(message.Chat.Id, language, cancellationToken),
+                _ => text.Get(language, "UnknownCommand")
             };
         }
 
         await telegramApi.SendMessageAsync(message.Chat.Id, reply, cancellationToken);
     }
 
-    private async Task HandleTokenPreviewCommandAsync(TelegramMessage message, BotCommand command, CancellationToken cancellationToken)
+    // Xử lý nút bấm của /add và /settings trong chat riêng của Premium user.
+    private async Task HandleCallbackAsync(TelegramCallbackQuery callback, CancellationToken cancellationToken)
+    {
+        await telegramApi.AnswerCallbackAsync(callback.Id, cancellationToken);
+        if (callback.Message?.Chat.Type != "private" || string.IsNullOrWhiteSpace(callback.Data))
+        {
+            return;
+        }
+
+        long chatId = callback.Message.Chat.Id;
+        await premiumService.RegisterUserAsync(chatId, callback.From, cancellationToken);
+        string language = await premiumService.GetLanguageAsync(chatId, cancellationToken);
+        if (callback.Data.StartsWith("language:", StringComparison.Ordinal))
+        {
+            await languageMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
+                cancellationToken);
+            return;
+        }
+
+        bool hasPremium = enablePersonalBot && await premiumService.IsPremiumAsync(chatId, cancellationToken);
+        if (!hasPremium)
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "PersonalClosed"), cancellationToken);
+            return;
+        }
+
+        if (callback.Data.StartsWith("watch:", StringComparison.Ordinal))
+        {
+            await watchlistMenu.HandleCallbackAsync(chatId, callback.Data, language, cancellationToken);
+        }
+        else if (callback.Data.StartsWith("settings:", StringComparison.Ordinal))
+        {
+            await tradingSettingsMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
+                cancellationToken);
+        }
+        else if (callback.Data.StartsWith("manual:", StringComparison.Ordinal))
+        {
+            await manualTokenMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data, language,
+                cancellationToken);
+        }
+    }
+
+    private async Task HandleTokenPreviewCommandAsync(TelegramMessage message, BotCommand command, string language,
+        CancellationToken cancellationToken)
     {
         bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From!.Id, cancellationToken);
 
         if (!isAdmin)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "Only channel administrators can use this command.", cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "AdminOnly"), cancellationToken);
             return;
         }
 
@@ -192,35 +295,32 @@ public sealed class TelegramBotService : BackgroundService
             if (preview.IsExpired)
             {
                 await telegramApi.SendMessageAsync(message.Chat.Id,
-                    "Token skipped. Metadata and image preparation reached 10 seconds. It will not be retried.", cancellationToken);
+                    text.Get(language, "PreviewExpired"), cancellationToken);
                 return;
             }
 
-            string caption = "Token preview\n\n"
-                + "Name: " + preview.Draft.Name + "\n"
-                + "Symbol: " + preview.Draft.Symbol + "\n"
-                + "Description: " + preview.Draft.Description + "\n\n"
-                + "Source: " + (preview.UsedSourceImage ? "post image" : "post text") + "\n"
-                + "OpenAI: " + preview.OpenAiSeconds.ToString("0.00") + " seconds\n"
-                + "FLUX: " + preview.FluxSeconds.ToString("0.00") + " seconds\n"
-                + "Total: " + preview.TotalSeconds.ToString("0.00") + " seconds\n\n"
-                + "Preview only. No token was created.";
+            string caption = text.Get(language, "PreviewCaption", preview.Draft.Name, preview.Draft.Symbol,
+                preview.Draft.Description, text.Get(language, preview.UsedSourceImage ? "PostImage" : "PostText"),
+                preview.OpenAiSeconds.ToString("0.00"), preview.FluxSeconds.ToString("0.00"),
+                preview.TotalSeconds.ToString("0.00"));
 
             await telegramApi.SendPhotoAsync(message.Chat.Id, preview.Image, caption, cancellationToken);
         }
         catch (Exception exception)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "Token preview failed: " + exception.Message, cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id,
+                text.Get(language, "TokenPreviewFailed", exception.Message), cancellationToken);
         }
     }
 
-    private async Task HandleFluxCommandAsync(TelegramMessage message, BotCommand command, CancellationToken cancellationToken)
+    private async Task HandleFluxCommandAsync(TelegramMessage message, BotCommand command, string language,
+        CancellationToken cancellationToken)
     {
         bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From!.Id, cancellationToken);
 
         if (!isAdmin)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "Only channel administrators can use this command.", cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "AdminOnly"), cancellationToken);
             return;
         }
 
@@ -231,7 +331,8 @@ public sealed class TelegramBotService : BackgroundService
                 DateTime startedAt = DateTime.UtcNow;
                 byte[] image = await fluxClient.CreateTokenImageAsync(command.Argument, cancellationToken);
                 double seconds = (DateTime.UtcNow - startedAt).TotalSeconds;
-                await telegramApi.SendPhotoAsync(message.Chat.Id, image, "FLUX token image\nGenerated in " + seconds.ToString("0.0") + " seconds", cancellationToken);
+                await telegramApi.SendPhotoAsync(message.Chat.Id, image,
+                    text.Get(language, "FluxImageCaption", seconds.ToString("0.0")), cancellationToken);
             }
             catch (Exception exception)
             {
@@ -244,19 +345,20 @@ public sealed class TelegramBotService : BackgroundService
         string reply = command.Name switch
         {
             "/fluxstatus" => await fluxClient.CheckConnectionAsync(cancellationToken),
-            _ => "Unknown FLUX command. Use /help."
+            _ => text.Get(language, "UnknownCommand")
         };
 
         await telegramApi.SendMessageAsync(message.Chat.Id, reply, cancellationToken);
     }
 
-    private async Task HandleAiCommandAsync(TelegramMessage message, BotCommand command, CancellationToken cancellationToken)
+    private async Task HandleAiCommandAsync(TelegramMessage message, BotCommand command, string language,
+        CancellationToken cancellationToken)
     {
         bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From!.Id, cancellationToken);
 
         if (!isAdmin)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "Only channel administrators can use this command.", cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "AdminOnly"), cancellationToken);
             return;
         }
 
@@ -265,7 +367,8 @@ public sealed class TelegramBotService : BackgroundService
             try
             {
                 byte[] image = await openAiClient.CreateImageAsync(command.Argument, cancellationToken);
-                await telegramApi.SendPhotoAsync(message.Chat.Id, image, "AI token image", cancellationToken);
+                await telegramApi.SendPhotoAsync(message.Chat.Id, image, text.Get(language, "AiImageCaption"),
+                    cancellationToken);
             }
             catch (Exception exception)
             {
@@ -279,105 +382,80 @@ public sealed class TelegramBotService : BackgroundService
         {
             "/aistatus" => await openAiClient.CheckConnectionAsync(cancellationToken),
             "/aitest" => await openAiClient.CreateTokenDraftAsync(command.Argument, cancellationToken),
-            _ => "Unknown AI command. Use /help."
+            _ => text.Get(language, "UnknownCommand")
         };
 
         await telegramApi.SendMessageAsync(message.Chat.Id, reply, cancellationToken);
     }
 
     // Chỉ admin Channel được kiểm tra kết nối GMGN.
-    private async Task HandleGmgnCommandAsync(TelegramMessage message, BotCommand command, CancellationToken cancellationToken)
+    private async Task HandleGmgnCommandAsync(TelegramMessage message, BotCommand command, string language,
+        CancellationToken cancellationToken)
     {
         bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From!.Id, cancellationToken);
 
         if (!isAdmin)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "Only channel administrators can use this command.", cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "AdminOnly"), cancellationToken);
             return;
         }
 
         string reply = command.Name switch
         {
             "/gmgnstatus" => await gmgnClient.CheckConnectionAsync(cancellationToken),
-            _ => "Unknown GMGN command. Use /help."
+            _ => text.Get(language, "UnknownCommand")
         };
 
         await telegramApi.SendMessageAsync(message.Chat.Id, reply, cancellationToken);
     }
 
     // Chỉ admin Channel được cấp hoặc thu hồi Premium.
-    private async Task HandlePremiumCommandAsync(TelegramMessage message, BotCommand command, CancellationToken cancellationToken)
+    private async Task HandlePremiumCommandAsync(TelegramMessage message, BotCommand command, string language,
+        CancellationToken cancellationToken)
     {
         bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From!.Id, cancellationToken);
 
         if (!isAdmin)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "Only channel administrators can use this command.", cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "AdminOnly"), cancellationToken);
             return;
         }
 
         string reply = command.Name switch
         {
-            "/premiumadd" => await premiumService.AddAsync(command.Argument, cancellationToken),
-            "/premiumremove" => await premiumService.RemoveAsync(command.Argument, cancellationToken),
-            "/premiumlist" => await premiumService.ListAsync(cancellationToken),
-            _ => "Unknown Premium command. Use /help."
+            "/premiumadd" => await premiumService.AddAsync(command.Argument, language, cancellationToken),
+            "/premiumremove" => await premiumService.RemoveAsync(command.Argument, language, cancellationToken),
+            "/premiumlist" => await premiumService.ListAsync(language, cancellationToken),
+            _ => text.Get(language, "UnknownCommand")
         };
 
         await telegramApi.SendMessageAsync(message.Chat.Id, reply, cancellationToken);
     }
 
     // Chỉ admin Channel được thay đổi danh sách X account của Channel.
-    private async Task HandleChannelCommandAsync(TelegramMessage message, BotCommand command, CancellationToken cancellationToken)
+    private async Task HandleChannelCommandAsync(TelegramMessage message, BotCommand command, string language,
+        CancellationToken cancellationToken)
     {
         bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From!.Id, cancellationToken);
 
         if (!isAdmin)
         {
-            await telegramApi.SendMessageAsync(message.Chat.Id, "Only channel administrators can use this command.", cancellationToken);
+            await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "AdminOnly"), cancellationToken);
             return;
         }
 
         string reply = command.Name switch
         {
-            "/channeladd" => await channelWatchlistService.AddAsync(telegramChannelId, command.Argument, cancellationToken),
-            "/channelremove" => await channelWatchlistService.RemoveAsync(telegramChannelId, command.Argument, cancellationToken),
-            "/channellist" => await channelWatchlistService.ListAsync(telegramChannelId, cancellationToken),
-            _ => "Unknown channel command. Use /help."
+            "/channeladd" => await channelWatchlistService.AddAsync(telegramChannelId, command.Argument, language,
+                cancellationToken),
+            "/channelremove" => await channelWatchlistService.RemoveAsync(telegramChannelId, command.Argument,
+                language, cancellationToken),
+            "/channellist" => await channelWatchlistService.ListAsync(telegramChannelId, language,
+                cancellationToken),
+            _ => text.Get(language, "UnknownCommand")
         };
 
         await telegramApi.SendMessageAsync(message.Chat.Id, reply, cancellationToken);
     }
 
-    private const string PersonalBotClosedText =
-        "Bot currently only sends notifications to the channel. "
-        + "Personal monitoring is not available yet.";
-
-    private const string AdminHelpText =
-        "Channel admin commands:\n"
-        + "/channeladd username - add an X account to the channel\n"
-        + "/channelremove username - remove an X account from the channel\n"
-        + "/channellist - show the channel watchlist\n\n"
-        + "Premium admin commands:\n"
-        + "/premiumadd username - enable Premium for a user\n"
-        + "/premiumremove username - disable Premium for a user\n"
-        + "/premiumlist - show Premium users\n\n"
-        + "GMGN admin commands:\n"
-        + "/gmgnstatus - check the read-only GMGN connection\n\n"
-        + "AI admin commands:\n"
-        + "/aistatus - check the OpenAI connection\n"
-        + "/aitest post text - create a token draft from sample text\n"
-        + "/aiimage image prompt - create a token image\n\n"
-        + "FLUX admin commands:\n"
-        + "/fluxstatus - check the FLUX connection\n"
-        + "/fluximage post text - create a fast token image\n\n"
-        + "Token preview:\n"
-        + "/tokenpreview post text - preview from text\n"
-        + "/tokenpreview post text | image URL - prioritize the post image";
-
-    private const string PersonalHelpText =
-        "Personal commands:\n"
-        + "/add username - add an X account\n"
-        + "/remove username - remove an X account\n"
-        + "/list - show your watchlist";
 }
