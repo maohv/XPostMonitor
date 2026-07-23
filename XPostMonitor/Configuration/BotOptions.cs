@@ -7,4 +7,5 @@ public sealed class BotOptions
     public string TelegramToken { get; set; } = string.Empty;
     public string XBearerToken { get; set; } = string.Empty;
     public long TelegramChannelId { get; set; }
+    public bool EnablePersonalBot { get; set; }
 }

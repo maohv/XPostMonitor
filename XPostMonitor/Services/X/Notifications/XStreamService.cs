@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Services.X;
@@ -13,15 +14,18 @@ public sealed class XStreamService : BackgroundService
     private readonly XApiClient xApiClient;
     private readonly PostNotificationService postNotifications;
     private readonly ILogger<XStreamService> logger;
+    private readonly bool enablePersonalBot;
 
     // Nhận database scope, X API, service xử lý Post và logger.
     public XStreamService(IServiceScopeFactory scopeFactory, XApiClient xApiClient,
-        PostNotificationService postNotifications, ILogger<XStreamService> logger)
+        PostNotificationService postNotifications, BotOptions options,
+        ILogger<XStreamService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.xApiClient = xApiClient;
         this.postNotifications = postNotifications;
         this.logger = logger;
+        enablePersonalBot = options.EnablePersonalBot;
     }
 
     // Giữ kết nối X Stream luôn chạy; tự kết nối lại khi bị mất kết nối.
@@ -63,19 +67,18 @@ public sealed class XStreamService : BackgroundService
         while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
         {
             string? line = await reader.ReadLineAsync(cancellationToken);
-            if (TryReadPost(line, out XPost? post, out List<string> xUserIds))
+            if (TryReadPost(line, out XStreamPostResponse? message, out List<string> xUserIds))
             {
-                await postNotifications.QueueAsync(
-                    post!, xUserIds, DateTimeOffset.UtcNow, cancellationToken);
-                logger.LogInformation("[X] Nhận Post {PostId} thành công.", post!.Id);
+                await postNotifications.QueueAsync(message!, xUserIds, DateTimeOffset.UtcNow, cancellationToken);
+                logger.LogInformation("[X] Nhận Post {PostId} thành công.", message!.Data!.Id);
             }
         }
     }
 
     // Chuyển JSON thành Post và lấy danh sách account ID từ matching rules.
-    private static bool TryReadPost(string? json, out XPost? post, out List<string> xUserIds)
+    private static bool TryReadPost(string? json, out XStreamPostResponse? message, out List<string> xUserIds)
     {
-        post = null;
+        message = null;
         xUserIds = new List<string>();
 
         if (string.IsNullOrWhiteSpace(json))
@@ -83,7 +86,7 @@ public sealed class XStreamService : BackgroundService
             return false; // X gửi dòng rỗng mỗi 20 giây để giữ kết nối.
         }
 
-        XStreamPostResponse? message = JsonSerializer.Deserialize<XStreamPostResponse>(json);
+        message = JsonSerializer.Deserialize<XStreamPostResponse>(json);
         if (message?.Data == null || message.MatchingRules == null)
         {
             return false;
@@ -102,7 +105,6 @@ public sealed class XStreamService : BackgroundService
             return false;
         }
 
-        post = message.Data;
         return true;
     }
 
@@ -112,6 +114,8 @@ public sealed class XStreamService : BackgroundService
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         return await db.XAccounts.AnyAsync(account =>
-            account.TelegramChannelId != null || account.Watchers.Any(), cancellationToken);
+            account.TelegramChannelId != null
+            || (enablePersonalBot && account.Watchers.Any(watcher => watcher.TelegramUser.IsPremium)),
+            cancellationToken);
     }
 }

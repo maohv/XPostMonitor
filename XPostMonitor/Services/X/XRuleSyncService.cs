@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
@@ -11,15 +12,17 @@ public sealed class XRuleSyncService : BackgroundService
     private readonly IServiceScopeFactory scopeFactory;
     private readonly XApiClient xApiClient;
     private readonly ILogger<XRuleSyncService> logger;
+    private readonly bool enablePersonalBot;
     private bool isConnected;
 
     // Nhận database scope, X API và logger qua dependency injection.
     public XRuleSyncService(IServiceScopeFactory scopeFactory, XApiClient xApiClient,
-        ILogger<XRuleSyncService> logger)
+        BotOptions options, ILogger<XRuleSyncService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.xApiClient = xApiClient;
         this.logger = logger;
+        enablePersonalBot = options.EnablePersonalBot;
     }
 
     // Chạy đồng bộ rule ngay khi khởi động, sau đó lặp lại mỗi 30 giây.
@@ -58,7 +61,8 @@ public sealed class XRuleSyncService : BackgroundService
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         List<XAccount> accounts = await db.XAccounts
-            .Where(account => account.TelegramChannelId != null || account.Watchers.Any())
+            .Where(account => account.TelegramChannelId != null
+                || (enablePersonalBot && account.Watchers.Any(watcher => watcher.TelegramUser.IsPremium)))
             .ToListAsync(cancellationToken);
 
         Dictionary<string, string> desiredRules = accounts.ToDictionary(

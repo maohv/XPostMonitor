@@ -14,6 +14,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<XAccount> XAccounts { get; set; } = null!;
     public DbSet<WatchlistEntry> WatchlistEntries { get; set; } = null!;
     public DbSet<XSubscription> XSubscriptions { get; set; } = null!;
+    public DbSet<UserTradingSettings> UserTradingSettings { get; set; } = null!;
 
     // Khai báo khóa chính, độ dài cột và quan hệ giữa các bảng.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -51,6 +52,16 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.EventType).HasMaxLength(64);
             entity.Property(x => x.RemoteSubscriptionId).HasMaxLength(20);
             entity.HasOne(x => x.XAccount).WithMany(x => x.Subscriptions).HasForeignKey(x => x.XUserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserTradingSettings>(entity =>
+        {
+            entity.HasKey(x => x.ChatId);
+            entity.Property(x => x.ChatId).ValueGeneratedNever();
+            entity.Property(x => x.WalletAddress).HasMaxLength(42);
+            entity.Property(x => x.BuyAmount).HasColumnType("decimal(18,8)");
+            entity.Property(x => x.SlippagePercent).HasColumnType("decimal(5,2)");
+            entity.HasOne(x => x.TelegramUser).WithOne(x => x.TradingSettings).HasForeignKey<UserTradingSettings>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

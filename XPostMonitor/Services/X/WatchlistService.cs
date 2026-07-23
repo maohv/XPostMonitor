@@ -18,9 +18,6 @@ public sealed class WatchlistService
         this.scopeFactory = scopeFactory;
         this.xApiClient = xApiClient;
         this.logger = logger;
-
-        System.Diagnostics.Debug.Assert(IsValidXUsername("binancezh"));
-        System.Diagnostics.Debug.Assert(!IsValidXUsername("invalid-name"));
     }
 
     // Kiểm tra username trên X rồi thêm tài khoản vào watchlist của Telegram user.

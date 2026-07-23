@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
+using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
@@ -13,29 +14,25 @@ public sealed class PostNotificationService : BackgroundService
     private readonly IServiceScopeFactory scopeFactory;
     private readonly TelegramNotificationService telegramNotifications;
     private readonly ILogger<PostNotificationService> logger;
+    private readonly bool enablePersonalBot;
 
     // X Stream ghi Post vào queue rồi tiếp tục đọc, không phải chờ database.
     private readonly Channel<XPostEvent> queue = Channel.CreateUnbounded<XPostEvent>();
 
     // Nhận database scope, service gửi Telegram và logger qua dependency injection.
-    public PostNotificationService(IServiceScopeFactory scopeFactory,
-        TelegramNotificationService telegramNotifications,
-        ILogger<PostNotificationService> logger)
+    public PostNotificationService(IServiceScopeFactory scopeFactory, TelegramNotificationService telegramNotifications,
+        BotOptions options, ILogger<PostNotificationService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.telegramNotifications = telegramNotifications;
         this.logger = logger;
-
-        System.Diagnostics.Debug.Assert(IsNewerPost("101", "100"));
-        System.Diagnostics.Debug.Assert(!IsNewerPost("100", "100"));
-        System.Diagnostics.Debug.Assert(!IsNewerPost("99", "100"));
+        enablePersonalBot = options.EnablePersonalBot;
     }
 
     // Đưa Post vào queue RAM; thao tác này rất nhanh và không chặn X Stream.
-    public ValueTask QueueAsync(XPost post, IReadOnlyList<string> xUserIds,
-        DateTimeOffset receivedAt, CancellationToken cancellationToken)
+    public ValueTask QueueAsync(XStreamPostResponse response, IReadOnlyList<string> xUserIds, DateTimeOffset receivedAt, CancellationToken cancellationToken)
     {
-        XPostEvent postEvent = new XPostEvent(post, xUserIds, receivedAt);
+        XPostEvent postEvent = new XPostEvent(response, xUserIds, receivedAt);
         return queue.Writer.WriteAsync(postEvent, cancellationToken);
     }
 
@@ -53,55 +50,55 @@ public sealed class PostNotificationService : BackgroundService
                 }
                 catch (Exception exception)
                 {
-                    logger.LogError(exception,
-                        "[DB] Xử lý Post {PostId} thất bại.", postEvent.Post.Id);
+                    logger.LogError(exception, "[DB] Xử lý Post {PostId} thất bại.", postEvent.Response.Data!.Id);
                 }
             }
         }
     }
 
     // Kiểm tra Post mới, cập nhật LastPostId rồi xếp thông báo cho từng watcher.
-    private async Task ProcessPostAsync(string xUserId, XPostEvent postEvent,
-        CancellationToken cancellationToken)
+    private async Task ProcessPostAsync(string xUserId, XPostEvent postEvent, CancellationToken cancellationToken)
     {
+        XPost post = postEvent.Response.Data!;
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         XAccount? account = await db.XAccounts.Include(item => item.Watchers)
+            .ThenInclude(watcher => watcher.TelegramUser)
             .FirstOrDefaultAsync(item => item.XUserId == xUserId, cancellationToken);
 
-        if (account == null || !IsNewerPost(postEvent.Post.Id, account.LastPostId))
+        if (account == null || !IsNewerPost(post.Id, account.LastPostId))
         {
             return;
         }
 
         // Lưu trước để event trùng không gửi cùng một Post hai lần.
-        account.LastPostId = postEvent.Post.Id;
+        account.LastPostId = post.Id;
         await db.SaveChangesAsync(cancellationToken);
-        logger.LogInformation("[DB] Lưu Post {PostId} thành công.", postEvent.Post.Id);
+        logger.LogInformation("[DB] Lưu Post {PostId} thành công.", post.Id);
 
-        string message = XNotificationMessage.Create(account.Username, postEvent.Post);
+        XNotificationContent content = XNotificationMessage.Create(account.Username, postEvent.Response);
 
         // Có ChannelId thì gửi một lần vào Channel; Telegram tự báo cho mọi thành viên.
         if (account.TelegramChannelId.HasValue)
         {
-            await telegramNotifications.QueueAsync(
-                account.TelegramChannelId.Value,
-                message,
-                postEvent.Post.Id,
-                postEvent.ReceivedAt,
-                postEvent.Post.CreatedAt,
-                cancellationToken);
-
+            await telegramNotifications.QueueAsync(account.TelegramChannelId.Value, content.Text, post.Id,
+                postEvent.ReceivedAt, post.CreatedAt, cancellationToken, content.PhotoUrl, content.PostUrl, true);
         }
 
         // Watchlist cá nhân chạy riêng: gửi cho từng người đã tự thêm tài khoản này.
-        foreach (long chatId in account.Watchers.Select(watcher => watcher.ChatId))
+        List<long> premiumChatIds = account.Watchers
+            .Where(watcher => enablePersonalBot && watcher.TelegramUser.IsPremium)
+            .Select(watcher => watcher.ChatId)
+            .Distinct()
+            .ToList();
+
+        foreach (long chatId in premiumChatIds)
         {
-            await telegramNotifications.QueueAsync(
-                chatId, message, postEvent.Post.Id, postEvent.ReceivedAt,
-                postEvent.Post.CreatedAt, cancellationToken);
+            await telegramNotifications.QueueAsync(chatId, content.Text, post.Id, postEvent.ReceivedAt,
+                post.CreatedAt, cancellationToken, content.PhotoUrl, content.PostUrl, true);
         }
+
     }
 
     // So sánh Post ID để chỉ xử lý Post mới hơn Post đã lưu trong database.
@@ -120,8 +117,5 @@ public sealed class PostNotificationService : BackgroundService
         return postId != lastPostId;
     }
 
-    private sealed record XPostEvent(
-        XPost Post,
-        IReadOnlyList<string> XUserIds,
-        DateTimeOffset ReceivedAt);
+    private sealed record XPostEvent(XStreamPostResponse Response, IReadOnlyList<string> XUserIds, DateTimeOffset ReceivedAt);
 }

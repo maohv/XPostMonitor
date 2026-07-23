@@ -23,10 +23,11 @@ public sealed class TelegramNotificationService : BackgroundService
     // Đưa thông báo vào queue để worker gửi nền, không bắt luồng Post phải chờ.
     public ValueTask QueueAsync(long chatId, string text, string postId,
         DateTimeOffset receivedAt, DateTimeOffset? postCreatedAt,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? photoUrl = null,
+        string? buttonUrl = null, bool useHtml = false)
     {
         Notification notification = new Notification(
-            chatId, text, postId, receivedAt, postCreatedAt);
+            chatId, text, postId, receivedAt, postCreatedAt, photoUrl, buttonUrl, useHtml);
 
         return queue.Writer.WriteAsync(notification, cancellationToken);
     }
@@ -48,7 +49,16 @@ public sealed class TelegramNotificationService : BackgroundService
         {
             try
             {
-                await telegramApi.SendMessageAsync(notification.ChatId, notification.Text, cancellationToken);
+                if (notification.UseHtml && notification.ButtonUrl != null)
+                {
+                    await telegramApi.SendRichMessageAsync(notification.ChatId, notification.Text,
+                        notification.PhotoUrl, notification.ButtonUrl, cancellationToken);
+                }
+                else
+                {
+                    await telegramApi.SendMessageAsync(notification.ChatId, notification.Text, cancellationToken);
+                }
+
                 LogDeliveryTime(notification);
                 logger.LogInformation("[TELEGRAM] Gửi Post {PostId} thành công.", notification.PostId);
             }
@@ -80,5 +90,8 @@ public sealed class TelegramNotificationService : BackgroundService
         string Text,
         string PostId,
         DateTimeOffset ReceivedAt,
-        DateTimeOffset? PostCreatedAt);
+        DateTimeOffset? PostCreatedAt,
+        string? PhotoUrl,
+        string? ButtonUrl,
+        bool UseHtml);
 }

@@ -1,10 +1,10 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
 
 namespace XPostMonitor.Services.Telegram;
 
-// Chỉ phụ trách gửi HTTP request đến Telegram API.
 public sealed class TelegramApiClient
 {
     private readonly HttpClient httpClient;
@@ -54,9 +54,64 @@ public sealed class TelegramApiClient
         await CheckResponseAsync(response, cancellationToken);
     }
 
+    public async Task SendPhotoAsync(long chatId, byte[] photo, string caption, CancellationToken cancellationToken)
+    {
+        using MultipartFormDataContent form = new MultipartFormDataContent();
+        using ByteArrayContent photoContent = new ByteArrayContent(photo);
+        bool isJpeg = photo.Length >= 2 && photo[0] == 0xFF && photo[1] == 0xD8;
+        photoContent.Headers.ContentType = new MediaTypeHeaderValue(isJpeg ? "image/jpeg" : "image/png");
+
+        form.Add(new StringContent(chatId.ToString()), "chat_id");
+        form.Add(new StringContent(caption), "caption");
+        form.Add(photoContent, "photo", isJpeg ? "token.jpg" : "token.png");
+
+        using HttpResponseMessage response = await httpClient.PostAsync(GetUrl("sendPhoto"), form, cancellationToken);
+        await CheckResponseAsync(response, cancellationToken);
+    }
+
+    // Gửi Post có HTML, ảnh và nút mở bài viết trên X.
+    public async Task SendRichMessageAsync(long chatId, string html, string? photoUrl, string buttonUrl, CancellationToken cancellationToken)
+    {
+        var replyMarkup = new
+        {
+            inline_keyboard = new[]
+            {
+                new[] { new { text = "View on X", url = buttonUrl } }
+            }
+        };
+
+        if (!string.IsNullOrWhiteSpace(photoUrl))
+        {
+            var photoRequest = new
+            {
+                chat_id = chatId,
+                photo = photoUrl,
+                caption = html,
+                parse_mode = "HTML",
+                show_caption_above_media = true,
+                reply_markup = replyMarkup
+            };
+
+            using HttpResponseMessage photoResponse = await httpClient.PostAsJsonAsync(GetUrl("sendPhoto"), photoRequest, cancellationToken);
+            await CheckResponseAsync(photoResponse, cancellationToken);
+            return;
+        }
+
+        var textRequest = new
+        {
+            chat_id = chatId,
+            text = html,
+            parse_mode = "HTML",
+            disable_web_page_preview = true,
+            reply_markup = replyMarkup
+        };
+
+        using HttpResponseMessage textResponse = await httpClient.PostAsJsonAsync(GetUrl("sendMessage"), textRequest, cancellationToken);
+        await CheckResponseAsync(textResponse, cancellationToken);
+    }
+
     // Kiểm tra người gửi lệnh có phải chủ hoặc quản trị viên của Channel hay không.
-    public async Task<bool> IsChannelAdminAsync(long channelId, long userId,
-        CancellationToken cancellationToken)
+    public async Task<bool> IsChannelAdminAsync(long channelId, long userId, CancellationToken cancellationToken)
     {
         var request = new
         {
@@ -64,10 +119,8 @@ public sealed class TelegramApiClient
             user_id = userId
         };
 
-        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(
-            GetUrl("getChatMember"), request, cancellationToken);
-        TelegramChatMemberResponse? result = await response.Content
-            .ReadFromJsonAsync<TelegramChatMemberResponse>(cancellationToken);
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(GetUrl("getChatMember"), request, cancellationToken);
+        TelegramChatMemberResponse? result = await response.Content.ReadFromJsonAsync<TelegramChatMemberResponse>(cancellationToken);
 
         CheckResponse(response, result);
         return result!.Result?.Status is "creator" or "administrator";

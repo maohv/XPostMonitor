@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using XPostMonitor.Data;
 
@@ -11,9 +12,11 @@ using XPostMonitor.Data;
 namespace XPostMonitor.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260723042428_AddPremiumAccess")]
+    partial class AddPremiumAccess
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50,38 +53,6 @@ namespace XPostMonitor.Data.Migrations
                     b.HasKey("ChatId");
 
                     b.ToTable("TelegramUsers");
-                });
-
-            modelBuilder.Entity("XPostMonitor.Models.UserTradingSettings", b =>
-                {
-                    b.Property<long>("ChatId")
-                        .HasColumnType("bigint");
-
-                    b.Property<decimal>("BuyAmount")
-                        .HasColumnType("decimal(18,8)");
-
-                    b.Property<bool>("EnableTokenCreation")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("EncryptedGmgnApiKey")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("EncryptedPrivateKey")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("SlippagePercent")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<string>("WalletAddress")
-                        .IsRequired()
-                        .HasMaxLength(42)
-                        .HasColumnType("nvarchar(42)");
-
-                    b.HasKey("ChatId");
-
-                    b.ToTable("UserTradingSettings");
                 });
 
             modelBuilder.Entity("XPostMonitor.Models.WatchlistEntry", b =>
@@ -164,17 +135,6 @@ namespace XPostMonitor.Data.Migrations
                     b.ToTable("XSubscriptions");
                 });
 
-            modelBuilder.Entity("XPostMonitor.Models.UserTradingSettings", b =>
-                {
-                    b.HasOne("XPostMonitor.Models.TelegramUser", "TelegramUser")
-                        .WithOne("TradingSettings")
-                        .HasForeignKey("XPostMonitor.Models.UserTradingSettings", "ChatId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TelegramUser");
-                });
-
             modelBuilder.Entity("XPostMonitor.Models.WatchlistEntry", b =>
                 {
                     b.HasOne("XPostMonitor.Models.TelegramUser", "TelegramUser")
@@ -207,8 +167,6 @@ namespace XPostMonitor.Data.Migrations
 
             modelBuilder.Entity("XPostMonitor.Models.TelegramUser", b =>
                 {
-                    b.Navigation("TradingSettings");
-
                     b.Navigation("Watchlist");
                 });
 

@@ -8,6 +8,8 @@ public sealed class TelegramUser
     public string? DisplayName { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public DateTime LastSeenAtUtc { get; set; }
+    public bool IsPremium { get; set; }
 
     public ICollection<WatchlistEntry> Watchlist { get; set; } = new List<WatchlistEntry>();
+    public UserTradingSettings? TradingSettings { get; set; }
 }

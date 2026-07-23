@@ -7,6 +7,8 @@ namespace XPostMonitor.Services.X;
 
 public sealed class XApiClient
 {
+    public const string AvatarEventType = "profile.update.profile_picture";
+
     private readonly HttpClient httpClient;
     private readonly string bearerToken;
 
@@ -84,8 +86,57 @@ public sealed class XApiClient
     // Mở kết nối HTTP lâu dài để nhận Post mới ngay khi X gửi về.
     public async Task<HttpResponseMessage> OpenFilteredStreamAsync(CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = CreateRequest(HttpMethod.Get,
-            "2/tweets/search/stream?tweet.fields=created_at,referenced_tweets");
+        string url = "2/tweets/search/stream"
+            + "?tweet.fields=created_at,referenced_tweets,author_id,in_reply_to_user_id,attachments"
+            + "&expansions=author_id,in_reply_to_user_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys,referenced_tweets.id.attachments.media_keys"
+            + "&user.fields=name,username,profile_image_url,public_metrics"
+            + "&media.fields=media_key,type,url,preview_image_url";
+
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, url);
+        HttpResponseMessage response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+        try
+        {
+            await EnsureSuccessAsync(response, cancellationToken);
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+    }
+
+    // Đăng ký nhận sự kiện đổi avatar của một X account.
+    public async Task<XActivitySubscription> CreateAvatarSubscriptionAsync(string xUserId, string tag, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Post, "2/activity/subscriptions");
+        request.Content = JsonContent.Create(new
+        {
+            event_type = AvatarEventType,
+            filter = new { user_id = xUserId },
+            tag
+        });
+
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        XActivityCreateResponse? result = await response.Content.ReadFromJsonAsync<XActivityCreateResponse>(cancellationToken);
+        return result?.Data?.Subscription ?? throw new HttpRequestException("X API did not return an activity subscription.");
+    }
+
+    // Xóa Activity subscription theo ID mà X đã trả về khi tạo.
+    public async Task DeleteActivitySubscriptionAsync(string subscriptionId, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Delete, "2/activity/subscriptions/" + subscriptionId);
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    // Mở kết nối lâu dài để nhận các Activity event từ X.
+    public async Task<HttpResponseMessage> OpenActivityStreamAsync(CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, "2/activity/stream");
         HttpResponseMessage response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
         try

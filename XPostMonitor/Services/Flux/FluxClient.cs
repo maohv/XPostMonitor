@@ -1,0 +1,188 @@
+using System.Net.Http.Json;
+using System.Text.RegularExpressions;
+using System.Text.Json;
+using XPostMonitor.Configuration;
+using XPostMonitor.Dtos;
+
+namespace XPostMonitor.Services.Flux;
+
+public sealed class FluxClient
+{
+    private readonly HttpClient httpClient;
+    private readonly FluxOptions options;
+
+    public FluxClient(HttpClient httpClient, FluxOptions options)
+    {
+        this.httpClient = httpClient;
+        this.options = options;
+    }
+
+    public async Task<string> CheckConnectionAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            return "FLUX API key is missing from configuration.";
+        }
+
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, "v1/credits");
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        string json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return "FLUX connection failed: " + Shorten(json);
+        }
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        string credits = document.RootElement.GetProperty("credits").GetRawText();
+
+        return "FLUX connected successfully.\n"
+            + "Model: " + options.ModelEndpoint + "\n"
+            + "Credits: " + credits;
+    }
+
+    public async Task<byte[]> CreateTokenImageAsync(string? postText, CancellationToken cancellationToken)
+    {
+        FluxImageDto result = await CreateTokenImageResultAsync(postText, null, cancellationToken);
+        return result.Data;
+    }
+
+    public async Task<byte[]> CreateTokenImageAsync(string? postText, string? imageUrl, CancellationToken cancellationToken)
+    {
+        FluxImageDto result = await CreateTokenImageResultAsync(postText, imageUrl, cancellationToken);
+        return result.Data;
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(postText) && string.IsNullOrWhiteSpace(imageUrl))
+        {
+            throw new ArgumentException("Usage: /fluximage post text");
+        }
+
+        if (postText?.Length > 4000)
+        {
+            throw new ArgumentException("Post text is too long. Maximum: 4000 characters.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            throw new InvalidOperationException("FLUX API key is missing from configuration.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(imageUrl)
+            && (!Uri.TryCreate(imageUrl, UriKind.Absolute, out Uri? imageUri) || imageUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new ArgumentException("Image URL must be a valid HTTPS URL.");
+        }
+
+        string cleanPostText = Regex.Replace(postText ?? string.Empty, @"https?://\S+", string.Empty).Trim();
+        string prompt = string.IsNullOrWhiteSpace(imageUrl)
+            ? "Create a square poster based directly on this post: " + cleanPostText + ". "
+                + "Show the main idea clearly. You may display only one short key phrase taken exactly from the post. "
+                + "Use a BNB-inspired palette: warm yellow #F0B90B, charcoal #0B0E11, and white accents. "
+                + "Clean bold composition, recognizable at thumbnail size. No URLs, logos, trademarks, coins, currency signs, or fake small text."
+            : "Use the input image as the primary reference for a square illustrated adaptation. "
+                + "Preserve its main subject, action, mood, people count, object count, and recognizable composition. "
+                + "Use the post only as context: " + cleanPostText + ". "
+                + "Use a BNB-inspired palette: warm yellow #F0B90B, charcoal #0B0E11, and white accents. "
+                + "No typography, words, letters, numbers, URLs, signs, labels, logos, trademarks, coins, currency signs, or emblems.";
+
+        Dictionary<string, object> requestBody = new Dictionary<string, object>
+        {
+            ["prompt"] = prompt,
+            ["width"] = 1024,
+            ["height"] = 1024,
+            ["output_format"] = "jpeg",
+            ["safety_tolerance"] = 2
+        };
+
+        if (!string.IsNullOrWhiteSpace(imageUrl))
+        {
+            requestBody["input_image"] = imageUrl;
+        }
+
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Post, "v1/" + options.ModelEndpoint);
+        request.Content = JsonContent.Create(requestBody);
+
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        string json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException("FLUX image failed: " + Shorten(json));
+        }
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        string pollingUrl = document.RootElement.GetProperty("polling_url").GetString()
+            ?? throw new JsonException("FLUX did not return a polling URL.");
+
+        string generatedImageUrl = await WaitForImageAsync(pollingUrl, cancellationToken);
+        byte[] image = await httpClient.GetByteArrayAsync(generatedImageUrl, cancellationToken);
+
+        return new FluxImageDto
+        {
+            Data = image,
+            Url = generatedImageUrl
+        };
+    }
+
+    private async Task<string> WaitForImageAsync(string pollingUrl, CancellationToken cancellationToken)
+    {
+        Uri url = new Uri(pollingUrl);
+        if (url.Scheme != Uri.UriSchemeHttps || !(url.Host == "bfl.ai" || url.Host.EndsWith(".bfl.ai", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("FLUX returned an invalid polling URL.");
+        }
+
+        for (int attempt = 0; attempt < 40; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+
+            using HttpRequestMessage request = CreateRequest(HttpMethod.Get, url);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+            string json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException("FLUX polling failed: " + Shorten(json));
+            }
+
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+            string status = root.GetProperty("status").GetString() ?? "Unknown";
+
+            if (status == "Ready")
+            {
+                return root.GetProperty("result").GetProperty("sample").GetString()
+                    ?? throw new JsonException("FLUX returned an empty image URL.");
+            }
+
+            if (status is "Error" or "Failed" or "Request Moderated" or "Content Moderated")
+            {
+                throw new InvalidOperationException("FLUX image failed with status: " + status);
+            }
+        }
+
+        throw new TimeoutException("FLUX image timed out after 20 seconds.");
+    }
+
+    private HttpRequestMessage CreateRequest(HttpMethod method, string url)
+    {
+        return CreateRequest(method, new Uri(httpClient.BaseAddress!, url));
+    }
+
+    private HttpRequestMessage CreateRequest(HttpMethod method, Uri url)
+    {
+        HttpRequestMessage request = new HttpRequestMessage(method, url);
+        request.Headers.Add("x-key", options.ApiKey);
+        request.Headers.Add("accept", "application/json");
+        return request;
+    }
+
+    private static string Shorten(string text)
+    {
+        string value = string.IsNullOrWhiteSpace(text) ? "Unknown error" : text.Trim();
+        return value.Length <= 500 ? value : value[..500];
+    }
+}
