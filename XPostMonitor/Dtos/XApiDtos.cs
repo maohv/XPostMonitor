@@ -110,6 +110,9 @@ public sealed class XPost
     [JsonPropertyName("text")]
     public string Text { get; set; } = string.Empty;
 
+    [JsonPropertyName("lang")]
+    public string? Language { get; set; }
+
     [JsonPropertyName("created_at")]
     public DateTimeOffset? CreatedAt { get; set; }
 

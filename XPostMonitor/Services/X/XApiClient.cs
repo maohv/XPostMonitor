@@ -48,7 +48,7 @@ public sealed class XApiClient
     public async Task<XStreamPostResponse> GetPostAsync(string postId, CancellationToken cancellationToken)
     {
         string url = "2/tweets/" + Uri.EscapeDataString(postId)
-            + "?tweet.fields=created_at,referenced_tweets,author_id,in_reply_to_user_id,attachments"
+            + "?tweet.fields=created_at,lang,referenced_tweets,author_id,in_reply_to_user_id,attachments"
             + "&expansions=author_id,in_reply_to_user_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys,referenced_tweets.id.attachments.media_keys"
             + "&user.fields=name,username,profile_image_url,public_metrics"
             + "&media.fields=media_key,type,url,preview_image_url";
@@ -107,7 +107,7 @@ public sealed class XApiClient
     public async Task<HttpResponseMessage> OpenFilteredStreamAsync(CancellationToken cancellationToken)
     {
         string url = "2/tweets/search/stream"
-            + "?tweet.fields=created_at,referenced_tweets,author_id,in_reply_to_user_id,attachments"
+            + "?tweet.fields=created_at,lang,referenced_tweets,author_id,in_reply_to_user_id,attachments"
             + "&expansions=author_id,in_reply_to_user_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys,referenced_tweets.id.attachments.media_keys"
             + "&user.fields=name,username,profile_image_url,public_metrics"
             + "&media.fields=media_key,type,url,preview_image_url";

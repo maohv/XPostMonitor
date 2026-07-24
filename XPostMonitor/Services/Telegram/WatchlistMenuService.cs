@@ -1,5 +1,5 @@
 using XPostMonitor.Dtos;
-using XPostMonitor.Services.Gmgn;
+using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.X;
 using XPostMonitor.Services.Telegram.Localization;
 
@@ -31,7 +31,7 @@ public sealed class WatchlistMenuService
             return;
         }
 
-        List<IReadOnlyList<TelegramInlineButton>> buttons = TradingNetworks.All
+        List<IReadOnlyList<TelegramInlineButton>> buttons = LaunchpadCatalog.All
             .Select(network => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(network.DisplayName, "watch:chain:" + username + ":" + network.Chain)])
             .ToList();
@@ -43,7 +43,7 @@ public sealed class WatchlistMenuService
     }
 
     // Xử lý từng nút của quy trình /add mà không cần lưu trạng thái tạm vào database.
-    public async Task HandleCallbackAsync(long chatId, string data, string language,
+    public async Task HandleCallbackAsync(long chatId, long messageId, string data, string language,
         CancellationToken cancellationToken)
     {
         string[] parts = data.Split(':');
@@ -52,9 +52,10 @@ public sealed class WatchlistMenuService
             return;
         }
 
+        await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+
         if (parts[1] == "cancel")
         {
-            await telegramApi.SendMessageAsync(chatId, text.Get(language, "AddCancelled"), cancellationToken);
             return;
         }
 
@@ -97,7 +98,7 @@ public sealed class WatchlistMenuService
     private async Task ShowLaunchpadsAsync(long chatId, string username, string chain, string language,
         CancellationToken cancellationToken)
     {
-        TradingNetwork? network = TradingNetworks.Find(chain);
+        LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
         if (network == null)
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "UnsupportedNetwork"), cancellationToken);
@@ -107,7 +108,7 @@ public sealed class WatchlistMenuService
         List<IReadOnlyList<TelegramInlineButton>> buttons = network.Launchpads
             .Select(launchpad => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(launchpad.DisplayName,
-                    "watch:dex:" + username + ":" + network.Chain + "," + launchpad.Dex)])
+                    "watch:dex:" + username + ":" + network.Chain + "," + launchpad.Code)])
             .ToList();
         buttons.Add([new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]);
 
@@ -118,8 +119,8 @@ public sealed class WatchlistMenuService
     private async Task ShowConfirmationAsync(long chatId, string username, string chain, string dex, string language,
         CancellationToken cancellationToken)
     {
-        TradingNetwork? network = TradingNetworks.Find(chain);
-        TradingLaunchpad? launchpad = network?.Launchpads.FirstOrDefault(item => item.Dex == dex);
+        LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
+        LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == dex);
         if (network == null || launchpad == null)
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "UnsupportedSelection"), cancellationToken);

@@ -16,7 +16,7 @@ public sealed class TelegramBotService : BackgroundService
     private readonly TelegramApiClient telegramApi;
     private readonly WatchlistService watchlistService;
     private readonly WatchlistMenuService watchlistMenu;
-    private readonly TradingSettingsMenuService tradingSettingsMenu;
+    private readonly TokenSettingsMenuService tokenSettingsMenu;
     private readonly ChannelWatchlistService channelWatchlistService;
     private readonly PremiumService premiumService;
     private readonly LanguageMenuService languageMenu;
@@ -35,7 +35,7 @@ public sealed class TelegramBotService : BackgroundService
     // Nhận các service cần dùng qua dependency injection.
     public TelegramBotService(TelegramApiClient telegramApi,
         WatchlistService watchlistService, WatchlistMenuService watchlistMenu,
-        TradingSettingsMenuService tradingSettingsMenu, ChannelWatchlistService channelWatchlistService,
+        TokenSettingsMenuService tokenSettingsMenu, ChannelWatchlistService channelWatchlistService,
         PremiumService premiumService, LanguageMenuService languageMenu, ManualTokenMenuService manualTokenMenu,
         BotTextService text,
         GmgnClient gmgnClient, OpenAiClient openAiClient, FluxClient fluxClient,
@@ -45,7 +45,7 @@ public sealed class TelegramBotService : BackgroundService
         this.telegramApi = telegramApi;
         this.watchlistService = watchlistService;
         this.watchlistMenu = watchlistMenu;
-        this.tradingSettingsMenu = tradingSettingsMenu;
+        this.tokenSettingsMenu = tokenSettingsMenu;
         this.channelWatchlistService = channelWatchlistService;
         this.premiumService = premiumService;
         this.languageMenu = languageMenu;
@@ -125,7 +125,7 @@ public sealed class TelegramBotService : BackgroundService
         string language = await premiumService.GetLanguageAsync(message.Chat.Id, cancellationToken);
 
         if (!message.Text!.StartsWith('/')
-            && await tradingSettingsMenu.HandlePendingInputAsync(message, cancellationToken))
+            && await tokenSettingsMenu.HandlePendingInputAsync(message, cancellationToken))
         {
             return;
         }
@@ -219,7 +219,7 @@ public sealed class TelegramBotService : BackgroundService
 
             if (command.Name == "/settings")
             {
-                await tradingSettingsMenu.ShowAsync(message.Chat.Id, cancellationToken);
+                await tokenSettingsMenu.ShowAsync(message.Chat.Id, cancellationToken);
                 return;
             }
 
@@ -263,11 +263,12 @@ public sealed class TelegramBotService : BackgroundService
 
         if (callback.Data.StartsWith("watch:", StringComparison.Ordinal))
         {
-            await watchlistMenu.HandleCallbackAsync(chatId, callback.Data, language, cancellationToken);
+            await watchlistMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data, language,
+                cancellationToken);
         }
         else if (callback.Data.StartsWith("settings:", StringComparison.Ordinal))
         {
-            await tradingSettingsMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
+            await tokenSettingsMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
                 cancellationToken);
         }
         else if (callback.Data.StartsWith("manual:", StringComparison.Ordinal))
@@ -457,5 +458,4 @@ public sealed class TelegramBotService : BackgroundService
 
         await telegramApi.SendMessageAsync(message.Chat.Id, reply, cancellationToken);
     }
-
 }

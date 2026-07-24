@@ -4,7 +4,8 @@ using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
-using XPostMonitor.Services.Gmgn;
+using XPostMonitor.Services.Launchpads;
+using XPostMonitor.Services.Tokens;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
 
@@ -111,13 +112,19 @@ public sealed class PostNotificationService : BackgroundService
                 post.CreatedAt, cancellationToken, content.PhotoUrl, content.PostUrl, true,
                 text.Get(language, "ViewOnX"));
 
-            // Mọi hoạt động Post, Reply, Quote và Repost đều được phép tạo token.
+            string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
+            bool isRepost = referenceType == "retweeted";
             bool canCreateToken = watcher.TelegramUser.TradingSettings?.EnableTokenCreation == true
-                && TradingNetworks.IsValid(watcher.TokenChain, watcher.TokenDex);
+                && LaunchpadCatalog.IsValid(watcher.TokenChain, watcher.TokenDex)
+                && !isRepost;
             if (canCreateToken)
             {
-                await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, post.Text, content.PhotoUrl,
-                    content.PostUrl, watcher.TokenChain!, watcher.TokenDex!, false,
+                string tokenText = referenceType == "replied_to"
+                    ? "[POST_TYPE=reply]\n" + post.Text
+                    : post.Text;
+                await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, tokenText, post.Language,
+                    content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!,
+                    content.OwnPhotoUrl != null,
                     watcher.TelegramUser.LanguageCode, postEvent.ReceivedAt, cancellationToken);
             }
         }

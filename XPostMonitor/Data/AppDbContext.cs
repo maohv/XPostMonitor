@@ -62,6 +62,7 @@ public sealed class AppDbContext : DbContext
         {
             entity.HasKey(x => x.ChatId);
             entity.Property(x => x.ChatId).ValueGeneratedNever();
+            entity.Property(x => x.EvmWalletAddress).HasMaxLength(42);
             entity.HasOne(x => x.TelegramUser).WithOne(x => x.TradingSettings).HasForeignKey<UserTradingSettings>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
         });
 

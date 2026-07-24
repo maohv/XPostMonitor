@@ -53,7 +53,46 @@ public sealed class FluxClient
         return result.Data;
     }
 
+    public async Task<byte[]> DownloadSourceImageAsync(string imageUrl, CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out Uri? uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !(uri.Host == "twimg.com" || uri.Host.EndsWith(".twimg.com", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException("X returned an invalid media URL.");
+        }
+
+        return await httpClient.GetByteArrayAsync(uri, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, CancellationToken cancellationToken)
+    {
+        return await CreateTokenImageFromPromptAsync(imagePrompt, null, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, string? chainImageStyle,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(imagePrompt))
+        {
+            throw new ArgumentException("AI did not return an image prompt.");
+        }
+
+        string style = string.IsNullOrWhiteSpace(chainImageStyle)
+            ? string.Empty
+            : " Apply this selected launch-chain palette: " + chainImageStyle;
+        string prompt = imagePrompt + style + " Square token artwork, clear at thumbnail size. "
+            + "No typography, words, letters, numbers, URLs, logos, trademarks, token symbols, or watermark.";
+        return await GenerateAsync(prompt, null, cancellationToken);
+    }
+
     public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl, CancellationToken cancellationToken)
+    {
+        return await CreateTokenImageResultAsync(postText, imageUrl, null, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl,
+        string? chainImageStyle, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(postText) && string.IsNullOrWhiteSpace(imageUrl))
         {
@@ -77,22 +116,32 @@ public sealed class FluxClient
         }
 
         string cleanPostText = Regex.Replace(postText ?? string.Empty, @"https?://\S+", string.Empty).Trim();
+        string style = string.IsNullOrWhiteSpace(chainImageStyle)
+            ? "Choose colors from the source subject or image. "
+            : "Apply this selected launch-chain palette: " + chainImageStyle + " ";
         string prompt = string.IsNullOrWhiteSpace(imageUrl)
             ? "Create a square poster based directly on this post: " + cleanPostText + ". "
-                + "Show the main idea clearly. You may display only one short key phrase taken exactly from the post. "
-                + "Use a BNB-inspired palette: warm yellow #F0B90B, charcoal #0B0E11, and white accents. "
-                + "Clean bold composition, recognizable at thumbnail size. No URLs, logos, trademarks, coins, currency signs, or fake small text."
+                + "Show the post-specific hook using 2-3 concrete visual symbols. Do not use a broad generic theme. "
+                + style
+                + "Clean bold composition, recognizable at thumbnail size. No typography, words, letters, numbers, URLs, logos, "
+                + "trademarks, token symbols, coins, currency signs, or watermark."
             : "Use the input image as the primary reference for a square illustrated adaptation. "
                 + "Preserve its main subject, action, mood, people count, object count, and recognizable composition. "
                 + "Use the post only as context: " + cleanPostText + ". "
-                + "Use a BNB-inspired palette: warm yellow #F0B90B, charcoal #0B0E11, and white accents. "
+                + style
                 + "No typography, words, letters, numbers, URLs, signs, labels, logos, trademarks, coins, currency signs, or emblems.";
+
+        return await GenerateAsync(prompt, imageUrl, cancellationToken);
+    }
+
+    private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl, CancellationToken cancellationToken)
+    {
 
         Dictionary<string, object> requestBody = new Dictionary<string, object>
         {
             ["prompt"] = prompt,
-            ["width"] = 1024,
-            ["height"] = 1024,
+            ["width"] = 512,
+            ["height"] = 512,
             ["output_format"] = "jpeg",
             ["safety_tolerance"] = 2
         };

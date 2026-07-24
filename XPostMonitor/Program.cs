@@ -5,9 +5,14 @@ using XPostMonitor.Data;
 using XPostMonitor.Services;
 using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gmgn;
+using XPostMonitor.Services.Launchpads;
+using XPostMonitor.Services.Launchpads.DyorStable;
+using XPostMonitor.Services.Launchpads.FourMeme;
 using XPostMonitor.Services.OpenAi;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
+using XPostMonitor.Services.Tokens;
+using XPostMonitor.Services.Wallets;
 using XPostMonitor.Services.X;
 using XPostMonitor.Services.X.Channels;
 using XPostMonitor.Services.X.Notifications;
@@ -38,6 +43,18 @@ FluxOptions fluxOptions = new FluxOptions();
 builder.Configuration.GetSection(FluxOptions.SectionName).Bind(fluxOptions);
 builder.Services.AddSingleton(fluxOptions);
 
+FourMemeOptions fourMemeOptions = new FourMemeOptions();
+builder.Configuration.GetSection(FourMemeOptions.SectionName).Bind(fourMemeOptions);
+builder.Services.AddSingleton(fourMemeOptions);
+
+DyorStableOptions dyorStableOptions = new DyorStableOptions();
+builder.Configuration.GetSection(DyorStableOptions.SectionName).Bind(dyorStableOptions);
+builder.Services.AddSingleton(dyorStableOptions);
+
+EvmNetworksOptions evmNetworksOptions = new EvmNetworksOptions();
+builder.Configuration.GetSection(EvmNetworksOptions.SectionName).Bind(evmNetworksOptions);
+builder.Services.AddSingleton(evmNetworksOptions);
+
 builder.Services.AddHttpClient<XApiClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.x.com/");
@@ -62,17 +79,30 @@ builder.Services.AddHttpClient<FluxClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<FourMemeClient>(client =>
+{
+    client.BaseAddress = new Uri("https://four.meme/meme-api/v1/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient<DyorStableClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.pinata.cloud/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
 // Các service xử lý chức năng thông thường.
 builder.Services.AddSingleton<WatchlistService>();
 builder.Services.AddSingleton<BotTextService>();
 builder.Services.AddSingleton<LanguageMenuService>();
 builder.Services.AddSingleton<ManualTokenMenuService>();
 builder.Services.AddSingleton<WatchlistMenuService>();
-builder.Services.AddSingleton<TradingSettingsMenuService>();
+builder.Services.AddSingleton<TokenSettingsMenuService>();
 builder.Services.AddSingleton<ChannelWatchlistService>();
 builder.Services.AddSingleton<PremiumService>();
 builder.Services.AddSingleton<GmgnClient>();
-builder.Services.AddSingleton<TradingSettingsService>();
+builder.Services.AddSingleton<EvmWalletService>();
+builder.Services.AddSingleton<TokenSettingsService>();
 builder.Services.AddSingleton<TokenPreviewService>();
 builder.Services.AddSingleton<TokenCreationService>();
 builder.Services.AddSingleton<PostNotificationService>();

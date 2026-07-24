@@ -1,11 +1,11 @@
 using System.Diagnostics;
-using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using XPostMonitor.Configuration;
 
 namespace XPostMonitor.Services.Gmgn;
 
-// Chạy gmgn-cli để kiểm tra kết nối, tìm ví đã liên kết và tạo token.
+// Chạy gmgn-cli để đọc dữ liệu thị trường và chuẩn bị cho chức năng trading sau này.
 public sealed class GmgnClient
 {
     private readonly GmgnOptions options;
@@ -99,7 +99,7 @@ public sealed class GmgnClient
         await ValidateCredentialsAsync(apiKey, privateKey, FindWalletForConnectionCheck(wallets), cancellationToken);
     }
 
-    // Tìm đúng ví đã được liên kết với API key cho network sắp tạo token.
+    // Tìm ví đã được liên kết với API key trên một network.
     public async Task<string> GetWalletAddressAsync(string apiKey, string chain, CancellationToken cancellationToken)
     {
         List<GmgnWallet> wallets = await GetWalletsAsync(apiKey, cancellationToken);
@@ -108,32 +108,6 @@ public sealed class GmgnClient
 
         return wallet?.Address
             ?? throw new InvalidOperationException("No " + chain + " wallet is linked to this GMGN API key.");
-    }
-
-    // Gửi một lệnh cooking create. --yes chỉ hoạt động khi user đã tự bật Auto Create.
-    public async Task<GmgnTokenResult> CreateTokenAsync(GmgnCredentials credentials, GmgnTokenRequest request,
-        CancellationToken cancellationToken)
-    {
-        string walletAddress = await GetWalletAddressAsync(credentials.ApiKey, request.Chain, cancellationToken);
-        List<string> arguments =
-        [
-            "cooking", "create",
-            "--chain", request.Chain,
-            "--dex", request.Dex,
-            "--from", walletAddress,
-            "--name", request.Name,
-            "--symbol", request.Symbol,
-            "--buy-amt", request.BuyAmount.ToString(CultureInfo.InvariantCulture),
-            "--image-url", request.ImageUrl,
-            "--description", request.Description,
-            "--twitter", request.PostUrl,
-            "--slippage", request.SlippagePercent.ToString(CultureInfo.InvariantCulture),
-            "--yes",
-            "--raw"
-        ];
-
-        string output = await RunAsync(arguments, credentials.ApiKey, credentials.PrivateKey, true, cancellationToken);
-        return ReadTokenResult(output);
     }
 
     private async Task<List<GmgnWallet>> GetWalletsAsync(string apiKey, CancellationToken cancellationToken)
@@ -212,6 +186,8 @@ public sealed class GmgnClient
             FileName = Environment.ExpandEnvironmentVariables(options.NodePath),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -280,28 +256,6 @@ public sealed class GmgnClient
             : "GMGN connected successfully.\nChain: BSC";
     }
 
-    private static GmgnTokenResult ReadTokenResult(string json)
-    {
-        using JsonDocument document = JsonDocument.Parse(json);
-        JsonElement root = document.RootElement;
-        if (root.TryGetProperty("code", out JsonElement code) && code.GetInt32() != 0)
-        {
-            throw new InvalidOperationException(ReadString(root, "message", "GMGN token creation failed."));
-        }
-
-        JsonElement data = root.TryGetProperty("data", out JsonElement value) ? value : root;
-        string status = ReadString(data, "status", "unknown");
-        string error = ReadString(data, "error_status", string.Empty);
-        if (status == "failed")
-        {
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "GMGN token creation failed." : error);
-        }
-
-        return new GmgnTokenResult(status,
-            ReadString(data, "hash", string.Empty),
-            ReadString(data, "order_id", string.Empty));
-    }
-
     private static string ReadString(JsonElement element, string propertyName, string fallback)
     {
         return element.TryGetProperty(propertyName, out JsonElement value)
@@ -317,13 +271,6 @@ public sealed class GmgnClient
     private sealed record GmgnWallet(string Chain, string Address);
 }
 
-public sealed record GmgnCredentials(string ApiKey, string PrivateKey);
-
 public sealed record GmgnConnectionResult(bool Success, string Message);
 
 public sealed record GmgnSigningKeyPair(string PublicKey, string PrivateKey);
-
-public sealed record GmgnTokenRequest(string Chain, string Dex, string Name, string Symbol,
-    string Description, string ImageUrl, string PostUrl, decimal BuyAmount, decimal SlippagePercent);
-
-public sealed record GmgnTokenResult(string Status, string TransactionHash, string OrderId);

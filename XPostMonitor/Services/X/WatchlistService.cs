@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
-using XPostMonitor.Services.Gmgn;
+using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Telegram.Localization;
 
 namespace XPostMonitor.Services.X;
@@ -36,7 +36,7 @@ public sealed class WatchlistService
         }
 
         bool alertsOnly = string.IsNullOrWhiteSpace(chain) && string.IsNullOrWhiteSpace(dex);
-        if (!alertsOnly && !TradingNetworks.IsValid(chain, dex))
+        if (!alertsOnly && !LaunchpadCatalog.IsValid(chain, dex))
         {
             return text.Get(language, "UnsupportedRoute");
         }
@@ -175,8 +175,8 @@ public sealed class WatchlistService
 
         List<string> lines = entries.Select(entry =>
         {
-            TradingNetwork? network = TradingNetworks.Find(entry.TokenChain);
-            TradingLaunchpad? launchpad = network?.Launchpads.FirstOrDefault(item => item.Dex == entry.TokenDex);
+            LaunchpadNetwork? network = LaunchpadCatalog.Find(entry.TokenChain);
+            LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == entry.TokenDex);
             string mode = network == null || launchpad == null
                 ? text.Get(language, "AlertsOnly")
                 : network.DisplayName + " · " + launchpad.DisplayName
@@ -200,8 +200,8 @@ public sealed class WatchlistService
 
     private string FormatMode(string? chain, string? dex, string language)
     {
-        TradingNetwork? network = TradingNetworks.Find(chain);
-        TradingLaunchpad? launchpad = network?.Launchpads.FirstOrDefault(item => item.Dex == dex);
+        LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
+        LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == dex);
         return network == null || launchpad == null
             ? text.Get(language, "AlertsOnly")
             : network.DisplayName + " · " + launchpad.DisplayName;

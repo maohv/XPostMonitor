@@ -38,8 +38,9 @@ public static class XNotificationMessage
         }
 
         string postUrl = "https://x.com/" + username + "/status/" + post.Id;
-        string? photoUrl = FindPhotoUrl(post, includes) ?? FindPhotoUrl(originalPost, includes);
-        return new XNotificationContent(text.ToString(), postUrl, photoUrl);
+        string? ownPhotoUrl = FindPhotoUrl(post, includes);
+        string? photoUrl = ownPhotoUrl ?? FindPhotoUrl(originalPost, includes);
+        return new XNotificationContent(text.ToString(), postUrl, photoUrl, ownPhotoUrl);
     }
 
     private static void AppendAuthor(StringBuilder text, string displayName, string username, long? followers,
@@ -165,4 +166,4 @@ public static class XNotificationMessage
     }
 }
 
-public sealed record XNotificationContent(string Text, string PostUrl, string? PhotoUrl);
+public sealed record XNotificationContent(string Text, string PostUrl, string? PhotoUrl, string? OwnPhotoUrl);

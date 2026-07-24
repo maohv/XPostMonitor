@@ -1,7 +1,10 @@
 using System.Globalization;
+using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
-using XPostMonitor.Services.Gmgn;
+using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Telegram.Localization;
+using XPostMonitor.Services.Tokens;
+using XPostMonitor.Services.Wallets;
 using XPostMonitor.Services.X;
 using XPostMonitor.Services.X.Notifications;
 
@@ -12,17 +15,25 @@ public sealed class ManualTokenMenuService
 {
     private readonly TelegramApiClient telegramApi;
     private readonly XApiClient xApiClient;
-    private readonly TradingSettingsService tradingSettings;
+    private readonly TokenSettingsService tokenSettings;
     private readonly TokenCreationService tokenCreation;
+    private readonly EvmWalletService evmWalletService;
+    private readonly FourMemeOptions fourMemeOptions;
+    private readonly DyorStableOptions dyorStableOptions;
     private readonly BotTextService text;
 
     public ManualTokenMenuService(TelegramApiClient telegramApi, XApiClient xApiClient,
-        TradingSettingsService tradingSettings, TokenCreationService tokenCreation, BotTextService text)
+        TokenSettingsService tokenSettings, TokenCreationService tokenCreation,
+        EvmWalletService evmWalletService, FourMemeOptions fourMemeOptions,
+        DyorStableOptions dyorStableOptions, BotTextService text)
     {
         this.telegramApi = telegramApi;
         this.xApiClient = xApiClient;
-        this.tradingSettings = tradingSettings;
+        this.tokenSettings = tokenSettings;
         this.tokenCreation = tokenCreation;
+        this.evmWalletService = evmWalletService;
+        this.fourMemeOptions = fourMemeOptions;
+        this.dyorStableOptions = dyorStableOptions;
         this.text = text;
     }
 
@@ -35,7 +46,7 @@ public sealed class ManualTokenMenuService
             return;
         }
 
-        List<IReadOnlyList<TelegramInlineButton>> buttons = TradingNetworks.All
+        List<IReadOnlyList<TelegramInlineButton>> buttons = LaunchpadCatalog.All
             .Select(network => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(network.DisplayName, "manual:chain:" + postId + ":" + network.Chain)])
             .ToList();
@@ -48,9 +59,10 @@ public sealed class ManualTokenMenuService
     public async Task HandleCallbackAsync(long chatId, long messageId, string data, string language,
         CancellationToken cancellationToken)
     {
+        await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+
         if (data == "manual:cancel")
         {
-            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             return;
         }
 
@@ -69,7 +81,7 @@ public sealed class ManualTokenMenuService
         }
 
         string[] route = parts[3].Split(',', 2);
-        if (route.Length != 2 || !TradingNetworks.IsValid(route[0], route[1]))
+        if (route.Length != 2 || !LaunchpadCatalog.IsValid(route[0], route[1]))
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualExpired"), cancellationToken);
             return;
@@ -81,14 +93,14 @@ public sealed class ManualTokenMenuService
         }
         else if (parts[1] == "create")
         {
-            await CreateAsync(chatId, messageId, postId, route[0], route[1], language, cancellationToken);
+            await CreateAsync(chatId, postId, route[0], route[1], language, cancellationToken);
         }
     }
 
     private async Task ShowLaunchpadsAsync(long chatId, string postId, string chain, string language,
         CancellationToken cancellationToken)
     {
-        TradingNetwork? network = TradingNetworks.Find(chain);
+        LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
         if (network == null)
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualExpired"), cancellationToken);
@@ -98,7 +110,7 @@ public sealed class ManualTokenMenuService
         List<IReadOnlyList<TelegramInlineButton>> buttons = network.Launchpads
             .Select(launchpad => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(launchpad.DisplayName,
-                    "manual:confirm:" + postId + ":" + chain + "," + launchpad.Dex)])
+                    "manual:confirm:" + postId + ":" + chain + "," + launchpad.Code)])
             .ToList();
         buttons.Add([new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]);
 
@@ -109,39 +121,64 @@ public sealed class ManualTokenMenuService
     private async Task ShowConfirmationAsync(long chatId, string postId, string chain, string dex, string language,
         CancellationToken cancellationToken)
     {
-        AutoCreateSettings? settings = await tradingSettings.GetManualCreateSettingsAsync(chatId, chain,
+        EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, cancellationToken);
+        TokenCreateSettings? settings = await tokenSettings.GetChainSettingsAsync(chatId, chain,
             cancellationToken);
-        if (settings == null)
+        if (wallet == null || settings == null)
         {
-            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualSettingsMissing"),
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "LaunchpadSettingsMissing"),
                 cancellationToken);
             return;
         }
 
-        TradingNetwork network = TradingNetworks.Find(chain)!;
-        TradingLaunchpad launchpad = network.Launchpads.First(item => item.Dex == dex);
+        LaunchpadNetwork network = LaunchpadCatalog.Find(chain)!;
+        LaunchpadInfo launchpad = network.Launchpads.First(item => item.Code == dex);
+        if (settings.BuyAmount < network.MinimumBuyAmount)
+        {
+            await telegramApi.SendMessageAsync(chatId,
+                text.Get(language, "MinimumBuyAmount", network.DisplayName,
+                    network.MinimumBuyAmount, network.Currency), cancellationToken);
+            return;
+        }
+
         string postUrl = "https://x.com/i/status/" + postId;
-        string message = text.Get(language, "ManualConfirmation", postUrl, network.DisplayName,
-            launchpad.DisplayName, settings.BuyAmount.ToString(CultureInfo.InvariantCulture), network.Currency,
-            settings.SlippagePercent.ToString(CultureInfo.InvariantCulture));
+        bool live = dex == "fourmeme"
+            ? fourMemeOptions.EnableRealTransactions
+            : dyorStableOptions.EnableRealTransactions;
+        string message = text.Get(language, live ? "TokenConfirmation" : "TokenTestConfirmation",
+            postUrl, network.DisplayName,
+            launchpad.DisplayName, settings.BuyAmount.ToString(CultureInfo.InvariantCulture), network.Currency);
         IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
         [
-            [new TelegramInlineButton(text.Get(language, "CreateRealToken"),
+            [new TelegramInlineButton(text.Get(language, live ? "CreateRealToken" : "RunTokenTest"),
                 "manual:create:" + postId + ":" + chain + "," + dex)],
             [new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]
         ];
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
 
-    private async Task CreateAsync(long chatId, long messageId, string postId, string chain, string dex,
+    private async Task CreateAsync(long chatId, string postId, string chain, string dex,
         string language, CancellationToken cancellationToken)
     {
         try
         {
             XStreamPostResponse response = await xApiClient.GetPostAsync(postId, cancellationToken);
+            XPost post = response.Data!;
+            string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
+            if (referenceType == "retweeted")
+            {
+                await telegramApi.SendMessageAsync(chatId, text.Get(language, "RepostTokenSkipped"),
+                    cancellationToken);
+                return;
+            }
+
             XNotificationContent content = XNotificationMessage.Create("x", response, text, language);
-            bool queued = await tokenCreation.QueueManualAsync(chatId, postId, response.Data!.Text,
-                content.PhotoUrl, content.PostUrl, chain, dex, language, cancellationToken);
+            string tokenText = referenceType == "replied_to"
+                ? "[POST_TYPE=reply]\n" + post.Text
+                : post.Text;
+            bool queued = await tokenCreation.QueueManualAsync(chatId, postId, tokenText,
+                post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, language,
+                cancellationToken);
             if (!queued)
             {
                 await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualAlreadyRunning"),
@@ -149,8 +186,11 @@ public sealed class ManualTokenMenuService
                 return;
             }
 
-            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
-            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualQueued"), cancellationToken);
+            bool live = dex == "fourmeme"
+                ? fourMemeOptions.EnableRealTransactions
+                : dyorStableOptions.EnableRealTransactions;
+            string queuedText = live ? "ManualQueued" : "TokenTestStarted";
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, queuedText), cancellationToken);
         }
         catch (Exception exception)
         {
@@ -158,5 +198,4 @@ public sealed class ManualTokenMenuService
                 text.Get(language, "ManualPostFailed", exception.Message), cancellationToken);
         }
     }
-
 }
