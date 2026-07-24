@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
+using XPostMonitor.Services.Gmgn;
+using XPostMonitor.Services.Telegram.Localization;
 
 namespace XPostMonitor.Services.X;
 
@@ -11,22 +13,36 @@ public sealed class WatchlistService
     private readonly IServiceScopeFactory scopeFactory;
     private readonly XApiClient xApiClient;
     private readonly ILogger<WatchlistService> logger;
+    private readonly BotTextService text;
 
     // Nhận database scope, X API và logger qua dependency injection.
-    public WatchlistService(IServiceScopeFactory scopeFactory, XApiClient xApiClient, ILogger<WatchlistService> logger)
+    public WatchlistService(IServiceScopeFactory scopeFactory, XApiClient xApiClient,
+        ILogger<WatchlistService> logger, BotTextService text)
     {
         this.scopeFactory = scopeFactory;
         this.xApiClient = xApiClient;
         this.logger = logger;
+        this.text = text;
     }
 
     // Kiểm tra username trên X rồi thêm tài khoản vào watchlist của Telegram user.
-    public async Task<string> AddAsync(long chatId, string? username, CancellationToken cancellationToken)
+    public async Task<string> AddAsync(long chatId, string? username, string? chain, string? dex, string language,
+        CancellationToken cancellationToken)
     {
+        username = username?.Trim().TrimStart('@');
         if (!IsValidXUsername(username))
         {
-            return "Usage: /add username";
+            return text.Get(language, "AddUsage");
         }
+
+        bool alertsOnly = string.IsNullOrWhiteSpace(chain) && string.IsNullOrWhiteSpace(dex);
+        if (!alertsOnly && !TradingNetworks.IsValid(chain, dex))
+        {
+            return text.Get(language, "UnsupportedRoute");
+        }
+
+        chain = chain?.ToLowerInvariant();
+        dex = dex?.ToLowerInvariant();
 
         try
         {
@@ -34,22 +50,29 @@ public sealed class WatchlistService
 
             if (xUser == null)
             {
-                return "X account not found.";
+                return text.Get(language, "XAccountNotFound");
             }
 
             if (xUser.Protected)
             {
-                return "Protected X accounts cannot be monitored.";
+                return text.Get(language, "ProtectedAccount");
             }
 
             using IServiceScope scope = scopeFactory.CreateScope();
             AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            bool alreadyWatching = await db.WatchlistEntries
-                .AnyAsync(item => item.ChatId == chatId && item.XUserId == xUser.Id, cancellationToken);
-            if (alreadyWatching)
+            WatchlistEntry? existingEntry = await db.WatchlistEntries
+                .Include(item => item.XAccount)
+                .FirstOrDefaultAsync(item => item.ChatId == chatId && item.XUserId == xUser.Id, cancellationToken);
+            if (existingEntry != null)
             {
-                return "You are already monitoring @" + xUser.Username + ".";
+                existingEntry.TokenChain = alertsOnly ? null : chain;
+                existingEntry.TokenDex = alertsOnly ? null : dex;
+                existingEntry.XAccount.Username = xUser.Username;
+                existingEntry.XAccount.DisplayName = xUser.Name;
+                existingEntry.XAccount.UpdatedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+                return text.Get(language, "WatchUpdated", xUser.Username, FormatMode(chain, dex, language));
             }
 
             DateTime now = DateTime.UtcNow;
@@ -72,31 +95,34 @@ public sealed class WatchlistService
             {
                 ChatId = chatId,
                 XUserId = xUser.Id,
+                TokenChain = alertsOnly ? null : chain,
+                TokenDex = alertsOnly ? null : dex,
                 CreatedAtUtc = now
             });
 
             await db.SaveChangesAsync(cancellationToken);
             logger.LogInformation("[DB] Thêm @{Username} vào watchlist thành công.", xUser.Username);
-            return "Added @" + xUser.Username + " to your watchlist.";
+            return text.Get(language, "WatchAdded", xUser.Username, FormatMode(chain, dex, language));
         }
         catch (HttpRequestException exception)
         {
             logger.LogWarning(exception, "Unable to add X account {Username}", username);
-            return "Could not check @" + username + ": " + exception.Message;
+            return text.Get(language, "WatchCheckFailed", username, exception.Message);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "[DB] Thêm @{Username} vào watchlist thất bại.", username);
-            return "Could not save @" + username + " to the watchlist.";
+            return text.Get(language, "WatchSaveFailed", username);
         }
     }
 
     // Xóa một tài khoản X khỏi watchlist của Telegram user.
-    public async Task<string> RemoveAsync(long chatId, string? username, CancellationToken cancellationToken)
+    public async Task<string> RemoveAsync(long chatId, string? username, string language,
+        CancellationToken cancellationToken)
     {
         if (!IsValidXUsername(username))
         {
-            return "Usage: /remove username";
+            return text.Get(language, "RemoveUsage");
         }
 
         using IServiceScope scope = scopeFactory.CreateScope();
@@ -109,7 +135,7 @@ public sealed class WatchlistService
 
         if (entry == null)
         {
-            return "You are not monitoring @" + username + ".";
+            return text.Get(language, "NotMonitoring", username);
         }
 
         try
@@ -117,29 +143,48 @@ public sealed class WatchlistService
             db.WatchlistEntries.Remove(entry);
             await db.SaveChangesAsync(cancellationToken);
             logger.LogInformation("[DB] Xóa @{Username} khỏi watchlist thành công.", entry.XAccount.Username);
-            return "Removed @" + entry.XAccount.Username + " from your watchlist.";
+            return text.Get(language, "WatchRemoved", entry.XAccount.Username);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "[DB] Xóa @{Username} khỏi watchlist thất bại.", username);
-            return "Could not remove @" + username + " from the watchlist.";
+            return text.Get(language, "WatchRemoveFailed", username);
         }
     }
 
     // Đọc database và tạo nội dung trả về cho lệnh /list.
-    public async Task<string> ListAsync(long chatId, CancellationToken cancellationToken)
+    public async Task<string> ListAsync(long chatId, string language, CancellationToken cancellationToken)
     {
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        List<string> usernames = await db.WatchlistEntries.Where(item => item.ChatId == chatId)
+        bool autoCreateEnabled = await db.UserTradingSettings
+            .Where(item => item.ChatId == chatId)
+            .Select(item => item.EnableTokenCreation)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        List<WatchlistEntry> entries = await db.WatchlistEntries.Where(item => item.ChatId == chatId)
+            .Include(item => item.XAccount)
             .OrderBy(item => item.XAccount.Username)
-            .Select(item => item.XAccount.Username)
             .ToListAsync(cancellationToken);
 
-        return usernames.Count == 0
-            ? "Your watchlist is empty."
-            : "Monitoring:\n- " + string.Join("\n- ", usernames);
+        if (entries.Count == 0)
+        {
+            return text.Get(language, "WatchEmpty");
+        }
+
+        List<string> lines = entries.Select(entry =>
+        {
+            TradingNetwork? network = TradingNetworks.Find(entry.TokenChain);
+            TradingLaunchpad? launchpad = network?.Launchpads.FirstOrDefault(item => item.Dex == entry.TokenDex);
+            string mode = network == null || launchpad == null
+                ? text.Get(language, "AlertsOnly")
+                : network.DisplayName + " · " + launchpad.DisplayName
+                    + " · " + text.Get(language, autoCreateEnabled ? "AutoCreate" : "AutoCreateOff");
+            return "@" + entry.XAccount.Username + "\n   " + mode;
+        }).ToList();
+
+        return text.Get(language, "WatchTitle", string.Join("\n\n", lines));
     }
 
     // Username X chỉ được chứa chữ, số, dấu gạch dưới và dài tối đa 15 ký tự.
@@ -151,5 +196,14 @@ public sealed class WatchlistService
         }
 
         return username.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
+    }
+
+    private string FormatMode(string? chain, string? dex, string language)
+    {
+        TradingNetwork? network = TradingNetworks.Find(chain);
+        TradingLaunchpad? launchpad = network?.Launchpads.FirstOrDefault(item => item.Dex == dex);
+        return network == null || launchpad == null
+            ? text.Get(language, "AlertsOnly")
+            : network.DisplayName + " · " + launchpad.DisplayName;
     }
 }

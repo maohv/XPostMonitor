@@ -7,4 +7,5 @@ public sealed class GmgnOptions
     public string ApiKey { get; set; } = string.Empty;
     public string NodePath { get; set; } = "node";
     public string CliScriptPath { get; set; } = string.Empty;
+    public string PublicServerIp { get; set; } = string.Empty;
 }

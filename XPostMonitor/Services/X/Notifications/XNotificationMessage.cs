@@ -2,13 +2,15 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using XPostMonitor.Dtos;
+using XPostMonitor.Services.Telegram.Localization;
 
 namespace XPostMonitor.Services.X.Notifications;
 
 // Tạo thẻ thông báo Telegram từ Post và dữ liệu mở rộng của X.
 public static class XNotificationMessage
 {
-    public static XNotificationContent Create(string fallbackUsername, XStreamPostResponse response)
+    public static XNotificationContent Create(string fallbackUsername, XStreamPostResponse response,
+        BotTextService textService, string language)
     {
         XPost post = response.Data!;
         XStreamIncludes includes = response.Includes ?? new XStreamIncludes();
@@ -21,8 +23,9 @@ public static class XNotificationMessage
         XUser? originalAuthor = FindUser(includes, originalPost?.AuthorId ?? post.InReplyToUserId);
 
         StringBuilder text = new StringBuilder();
-        AppendAuthor(text, displayName, username, author?.PublicMetrics?.FollowersCount, post.CreatedAt);
-        AppendActivity(text, reference?.Type, originalAuthor?.Username);
+        AppendAuthor(text, displayName, username, author?.PublicMetrics?.FollowersCount, post.CreatedAt,
+            textService, language);
+        AppendActivity(text, reference?.Type, originalAuthor?.Username, textService, language);
 
         if (reference?.Type != "retweeted" || originalPost == null)
         {
@@ -31,7 +34,7 @@ public static class XNotificationMessage
 
         if (originalPost != null)
         {
-            AppendOriginalPost(text, originalPost, originalAuthor);
+            AppendOriginalPost(text, originalPost, originalAuthor, textService, language);
         }
 
         string postUrl = "https://x.com/" + username + "/status/" + post.Id;
@@ -39,7 +42,8 @@ public static class XNotificationMessage
         return new XNotificationContent(text.ToString(), postUrl, photoUrl);
     }
 
-    private static void AppendAuthor(StringBuilder text, string displayName, string username, long? followers, DateTimeOffset? createdAt)
+    private static void AppendAuthor(StringBuilder text, string displayName, string username, long? followers,
+        DateTimeOffset? createdAt, BotTextService textService, string language)
     {
         string profileUrl = "https://x.com/" + username;
         text.Append("<b>").Append(WebUtility.HtmlEncode(displayName)).Append("</b> | ")
@@ -48,35 +52,38 @@ public static class XNotificationMessage
 
         if (followers.HasValue)
         {
-            text.Append(FormatFollowers(followers.Value)).Append(" followers · ");
+            text.Append(FormatFollowers(followers.Value)).Append(' ')
+                .Append(textService.Get(language, "Followers")).Append(" · ");
         }
 
-        text.Append(FormatTime(createdAt)).Append("\n\n");
+        text.Append(FormatTime(createdAt, textService, language)).Append("\n\n");
     }
 
-    private static void AppendActivity(StringBuilder text, string? type, string? originalUsername)
+    private static void AppendActivity(StringBuilder text, string? type, string? originalUsername,
+        BotTextService textService, string language)
     {
         if (type == "replied_to")
         {
-            text.Append("<b>Replying to @")
-                .Append(WebUtility.HtmlEncode(originalUsername ?? "unknown"))
+            text.Append("<b>").Append(textService.Get(language, "ReplyingTo",
+                    WebUtility.HtmlEncode(originalUsername ?? textService.Get(language, "Unknown"))))
                 .Append("</b>\n\n");
             return;
         }
 
         string title = type switch
         {
-            "retweeted" => "Reposted",
-            "quoted" => "Quoted post",
-            _ => "New post"
+            "retweeted" => textService.Get(language, "Reposted"),
+            "quoted" => textService.Get(language, "QuotedPost"),
+            _ => textService.Get(language, "NewPost")
         };
 
         text.Append("<b>").Append(title).Append("</b>\n\n");
     }
 
-    private static void AppendOriginalPost(StringBuilder text, XPost originalPost, XUser? originalAuthor)
+    private static void AppendOriginalPost(StringBuilder text, XPost originalPost, XUser? originalAuthor,
+        BotTextService textService, string language)
     {
-        string username = originalAuthor?.Username ?? "unknown";
+        string username = originalAuthor?.Username ?? textService.Get(language, "Unknown");
         string displayName = originalAuthor?.Name ?? username;
 
         text.Append("\n\n<blockquote><b>")
@@ -126,30 +133,30 @@ public static class XNotificationMessage
         return followers.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static string FormatTime(DateTimeOffset? createdAt)
+    private static string FormatTime(DateTimeOffset? createdAt, BotTextService textService, string language)
     {
         if (!createdAt.HasValue)
         {
-            return "just now";
+            return textService.Get(language, "JustNow");
         }
 
         TimeSpan age = DateTimeOffset.UtcNow - createdAt.Value;
         if (age.TotalMinutes < 1)
         {
-            return "just now";
+            return textService.Get(language, "JustNow");
         }
 
         if (age.TotalHours < 1)
         {
-            return (int)age.TotalMinutes + "m ago";
+            return textService.Get(language, "MinutesAgo", (int)age.TotalMinutes);
         }
 
         if (age.TotalDays < 1)
         {
-            return (int)age.TotalHours + "h ago";
+            return textService.Get(language, "HoursAgo", (int)age.TotalHours);
         }
 
-        return (int)age.TotalDays + "d ago";
+        return textService.Get(language, "DaysAgo", (int)age.TotalDays);
     }
 
     private static string Trim(string text, int maximumLength)

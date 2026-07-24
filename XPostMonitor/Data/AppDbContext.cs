@@ -15,6 +15,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<WatchlistEntry> WatchlistEntries { get; set; } = null!;
     public DbSet<XSubscription> XSubscriptions { get; set; } = null!;
     public DbSet<UserTradingSettings> UserTradingSettings { get; set; } = null!;
+    public DbSet<UserChainTradingSettings> UserChainTradingSettings { get; set; } = null!;
 
     // Khai báo khóa chính, độ dài cột và quan hệ giữa các bảng.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -25,6 +26,7 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.ChatId).ValueGeneratedNever();
             entity.Property(x => x.Username).HasMaxLength(64);
             entity.Property(x => x.DisplayName).HasMaxLength(256);
+            entity.Property(x => x.LanguageCode).HasMaxLength(2).HasDefaultValue("en");
         });
 
         modelBuilder.Entity<XAccount>(entity =>
@@ -41,6 +43,8 @@ public sealed class AppDbContext : DbContext
         {
             entity.HasKey(x => new { x.ChatId, x.XUserId });
             entity.Property(x => x.XUserId).HasMaxLength(20);
+            entity.Property(x => x.TokenChain).HasMaxLength(20);
+            entity.Property(x => x.TokenDex).HasMaxLength(20);
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.Watchlist).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.XAccount).WithMany(x => x.Watchers).HasForeignKey(x => x.XUserId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -58,10 +62,16 @@ public sealed class AppDbContext : DbContext
         {
             entity.HasKey(x => x.ChatId);
             entity.Property(x => x.ChatId).ValueGeneratedNever();
-            entity.Property(x => x.WalletAddress).HasMaxLength(42);
+            entity.HasOne(x => x.TelegramUser).WithOne(x => x.TradingSettings).HasForeignKey<UserTradingSettings>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserChainTradingSettings>(entity =>
+        {
+            entity.HasKey(x => new { x.ChatId, x.Chain });
+            entity.Property(x => x.Chain).HasMaxLength(20);
             entity.Property(x => x.BuyAmount).HasColumnType("decimal(18,8)");
             entity.Property(x => x.SlippagePercent).HasColumnType("decimal(5,2)");
-            entity.HasOne(x => x.TelegramUser).WithOne(x => x.TradingSettings).HasForeignKey<UserTradingSettings>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.TelegramUser).WithMany(x => x.ChainTradingSettings).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

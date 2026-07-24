@@ -31,7 +31,7 @@ public sealed class TelegramApiClient
         {
             offset,
             timeout = 30,
-            allowed_updates = new[] { "message" }
+            allowed_updates = new[] { "message", "callback_query" }
         };
 
         using HttpResponseMessage response = await httpClient.PostAsJsonAsync(GetUrl("getUpdates"), request, cancellationToken);
@@ -54,6 +54,35 @@ public sealed class TelegramApiClient
         await CheckResponseAsync(response, cancellationToken);
     }
 
+    // Gửi tin nhắn kèm các nút để người dùng không phải nhớ lệnh dài.
+    public async Task SendButtonsAsync(long chatId, string text,
+        IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons, CancellationToken cancellationToken,
+        bool useHtml = false)
+    {
+        object request = useHtml
+            ? new { chat_id = chatId, text, parse_mode = "HTML", reply_markup = new { inline_keyboard = buttons } }
+            : new { chat_id = chatId, text, reply_markup = new { inline_keyboard = buttons } };
+
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(GetUrl("sendMessage"), request, cancellationToken);
+        await CheckResponseAsync(response, cancellationToken);
+    }
+
+    // Báo Telegram rằng bot đã nhận lần bấm nút để ngừng biểu tượng loading.
+    public async Task AnswerCallbackAsync(string callbackId, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(GetUrl("answerCallbackQuery"),
+            new { callback_query_id = callbackId }, cancellationToken);
+        await CheckResponseAsync(response, cancellationToken);
+    }
+
+    // Xóa ngay tin nhắn chứa API key hoặc private key sau khi đã đọc.
+    public async Task DeleteMessageAsync(long chatId, long messageId, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(GetUrl("deleteMessage"),
+            new { chat_id = chatId, message_id = messageId }, cancellationToken);
+        await CheckResponseAsync(response, cancellationToken);
+    }
+
     public async Task SendPhotoAsync(long chatId, byte[] photo, string caption, CancellationToken cancellationToken)
     {
         using MultipartFormDataContent form = new MultipartFormDataContent();
@@ -69,14 +98,29 @@ public sealed class TelegramApiClient
         await CheckResponseAsync(response, cancellationToken);
     }
 
+    // Gửi ảnh trực tiếp từ URL, dùng cho avatar gốc của X.
+    public async Task SendPhotoAsync(long chatId, string photoUrl, string caption, CancellationToken cancellationToken)
+    {
+        var request = new
+        {
+            chat_id = chatId,
+            photo = photoUrl,
+            caption
+        };
+
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(GetUrl("sendPhoto"), request, cancellationToken);
+        await CheckResponseAsync(response, cancellationToken);
+    }
+
     // Gửi Post có HTML, ảnh và nút mở bài viết trên X.
-    public async Task SendRichMessageAsync(long chatId, string html, string? photoUrl, string buttonUrl, CancellationToken cancellationToken)
+    public async Task SendRichMessageAsync(long chatId, string html, string? photoUrl, string buttonUrl,
+        string buttonText, CancellationToken cancellationToken)
     {
         var replyMarkup = new
         {
             inline_keyboard = new[]
             {
-                new[] { new { text = "View on X", url = buttonUrl } }
+                new[] { new { text = buttonText, url = buttonUrl } }
             }
         };
 

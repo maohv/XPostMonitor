@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
+using XPostMonitor.Services.Telegram.Localization;
 
 namespace XPostMonitor.Services.X.Channels;
 
@@ -11,23 +12,25 @@ public sealed class ChannelWatchlistService
     private readonly IServiceScopeFactory scopeFactory;
     private readonly XApiClient xApiClient;
     private readonly ILogger<ChannelWatchlistService> logger;
+    private readonly BotTextService text;
 
     // Nhận database, X API và logger qua dependency injection.
     public ChannelWatchlistService(IServiceScopeFactory scopeFactory, XApiClient xApiClient,
-        ILogger<ChannelWatchlistService> logger)
+        ILogger<ChannelWatchlistService> logger, BotTextService text)
     {
         this.scopeFactory = scopeFactory;
         this.xApiClient = xApiClient;
         this.logger = logger;
+        this.text = text;
     }
 
     // Kiểm tra tài khoản X rồi gắn tài khoản đó với Channel.
-    public async Task<string> AddAsync(long channelId, string? username,
+    public async Task<string> AddAsync(long channelId, string? username, string language,
         CancellationToken cancellationToken)
     {
         if (!IsValidXUsername(username))
         {
-            return "Usage: /channeladd username";
+            return text.Get(language, "ChannelAddUsage");
         }
 
         try
@@ -35,12 +38,12 @@ public sealed class ChannelWatchlistService
             XUser? xUser = await xApiClient.GetUserByUsernameAsync(username!, cancellationToken);
             if (xUser == null)
             {
-                return "X account not found.";
+                return text.Get(language, "XAccountNotFound");
             }
 
             if (xUser.Protected)
             {
-                return "Protected X accounts cannot be monitored.";
+                return text.Get(language, "ProtectedAccount");
             }
 
             using IServiceScope scope = scopeFactory.CreateScope();
@@ -50,7 +53,7 @@ public sealed class ChannelWatchlistService
 
             if (account?.TelegramChannelId == channelId)
             {
-                return "@" + xUser.Username + " is already monitored by the channel.";
+                return text.Get(language, "ChannelAlreadyMonitoring", xUser.Username);
             }
 
             DateTime now = DateTime.UtcNow;
@@ -71,27 +74,27 @@ public sealed class ChannelWatchlistService
 
             await db.SaveChangesAsync(cancellationToken);
             logger.LogInformation("[DB] Added @{Username} to the channel watchlist.", xUser.Username);
-            return "Added @" + xUser.Username + " to the channel.";
+            return text.Get(language, "ChannelAdded", xUser.Username);
         }
         catch (HttpRequestException exception)
         {
             logger.LogWarning(exception, "Unable to add X account {Username} to the channel.", username);
-            return "Could not check @" + username + ": " + exception.Message;
+            return text.Get(language, "WatchCheckFailed", username, exception.Message);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "[DB] Could not add @{Username} to the channel.", username);
-            return "Could not add @" + username + " to the channel.";
+            return text.Get(language, "ChannelAddFailed", username);
         }
     }
 
     // Bỏ tài khoản X khỏi Channel nhưng không đụng vào watchlist cá nhân.
-    public async Task<string> RemoveAsync(long channelId, string? username,
+    public async Task<string> RemoveAsync(long channelId, string? username, string language,
         CancellationToken cancellationToken)
     {
         if (!IsValidXUsername(username))
         {
-            return "Usage: /channelremove username";
+            return text.Get(language, "ChannelRemoveUsage");
         }
 
         using IServiceScope scope = scopeFactory.CreateScope();
@@ -104,7 +107,7 @@ public sealed class ChannelWatchlistService
 
         if (account == null)
         {
-            return "@" + username + " is not monitored by the channel.";
+            return text.Get(language, "ChannelNotMonitoring", username);
         }
 
         account.TelegramChannelId = null;
@@ -112,11 +115,11 @@ public sealed class ChannelWatchlistService
         await db.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("[DB] Removed @{Username} from the channel watchlist.", account.Username);
-        return "Removed @" + account.Username + " from the channel.";
+        return text.Get(language, "ChannelRemoved", account.Username);
     }
 
     // Đọc và hiển thị danh sách tài khoản X đang được Channel theo dõi.
-    public async Task<string> ListAsync(long channelId, CancellationToken cancellationToken)
+    public async Task<string> ListAsync(long channelId, string language, CancellationToken cancellationToken)
     {
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -128,8 +131,8 @@ public sealed class ChannelWatchlistService
             .ToListAsync(cancellationToken);
 
         return usernames.Count == 0
-            ? "The channel watchlist is empty."
-            : "Channel monitoring:\n- " + string.Join("\n- ", usernames);
+            ? text.Get(language, "ChannelEmpty")
+            : text.Get(language, "ChannelList", string.Join("\n- ", usernames));
     }
 
     // Username X chỉ gồm chữ, số, dấu gạch dưới và dài tối đa 15 ký tự.

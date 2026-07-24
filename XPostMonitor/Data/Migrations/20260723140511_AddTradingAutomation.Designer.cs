@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using XPostMonitor.Data;
 
@@ -11,9 +12,11 @@ using XPostMonitor.Data;
 namespace XPostMonitor.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260723140511_AddTradingAutomation")]
+    partial class AddTradingAutomation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -36,13 +39,6 @@ namespace XPostMonitor.Data.Migrations
 
                     b.Property<bool>("IsPremium")
                         .HasColumnType("bit");
-
-                    b.Property<string>("LanguageCode")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(2)
-                        .HasColumnType("nvarchar(2)")
-                        .HasDefaultValue("en");
 
                     b.Property<DateTime>("LastSeenAtUtc")
                         .HasColumnType("datetime2");

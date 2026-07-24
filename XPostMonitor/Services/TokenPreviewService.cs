@@ -83,6 +83,44 @@ public sealed class TokenPreviewService
         };
     }
 
+    // Avatar dùng nguyên ảnh X làm logo; chỉ nhờ OpenAI tạo tên, symbol và mô tả.
+    public async Task<TokenPreviewDto> CreateWithOriginalImageAsync(string? postText, string? imageUrl,
+        DateTimeOffset receivedAt, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(imageUrl))
+        {
+            throw new InvalidOperationException("X did not return the new avatar URL.");
+        }
+
+        TimeSpan remainingTime = MaxPreparationTime - (DateTimeOffset.UtcNow - receivedAt);
+        if (remainingTime <= TimeSpan.Zero)
+        {
+            return CreateExpiredResult(receivedAt, imageUrl);
+        }
+
+        using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(remainingTime);
+        Stopwatch timer = Stopwatch.StartNew();
+
+        try
+        {
+            TokenDraftDto draft = await openAiClient.CreateTokenMetadataAsync(postText, imageUrl, deadline.Token);
+            timer.Stop();
+            return new TokenPreviewDto
+            {
+                Draft = draft,
+                ImageUrl = imageUrl,
+                OpenAiSeconds = timer.Elapsed.TotalSeconds,
+                TotalSeconds = Math.Max(0, (DateTimeOffset.UtcNow - receivedAt).TotalSeconds),
+                UsedSourceImage = true
+            };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return CreateExpiredResult(receivedAt, imageUrl);
+        }
+    }
+
     private static TokenPreviewDto CreateExpiredResult(DateTimeOffset receivedAt, string? imageUrl)
     {
         return new TokenPreviewDto

@@ -24,10 +24,10 @@ public sealed class TelegramNotificationService : BackgroundService
     public ValueTask QueueAsync(long chatId, string text, string postId,
         DateTimeOffset receivedAt, DateTimeOffset? postCreatedAt,
         CancellationToken cancellationToken, string? photoUrl = null,
-        string? buttonUrl = null, bool useHtml = false)
+        string? buttonUrl = null, bool useHtml = false, string buttonText = "View on X")
     {
         Notification notification = new Notification(
-            chatId, text, postId, receivedAt, postCreatedAt, photoUrl, buttonUrl, useHtml);
+            chatId, text, postId, receivedAt, postCreatedAt, photoUrl, buttonUrl, useHtml, buttonText);
 
         return queue.Writer.WriteAsync(notification, cancellationToken);
     }
@@ -52,7 +52,7 @@ public sealed class TelegramNotificationService : BackgroundService
                 if (notification.UseHtml && notification.ButtonUrl != null)
                 {
                     await telegramApi.SendRichMessageAsync(notification.ChatId, notification.Text,
-                        notification.PhotoUrl, notification.ButtonUrl, cancellationToken);
+                        notification.PhotoUrl, notification.ButtonUrl, notification.ButtonText, cancellationToken);
                 }
                 else
                 {
@@ -93,5 +93,6 @@ public sealed class TelegramNotificationService : BackgroundService
         DateTimeOffset? PostCreatedAt,
         string? PhotoUrl,
         string? ButtonUrl,
-        bool UseHtml);
+        bool UseHtml,
+        string ButtonText);
 }

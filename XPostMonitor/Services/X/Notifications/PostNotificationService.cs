@@ -4,7 +4,9 @@ using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
+using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.Telegram;
+using XPostMonitor.Services.Telegram.Localization;
 
 namespace XPostMonitor.Services.X.Notifications;
 
@@ -13,20 +15,27 @@ public sealed class PostNotificationService : BackgroundService
 {
     private readonly IServiceScopeFactory scopeFactory;
     private readonly TelegramNotificationService telegramNotifications;
+    private readonly TokenCreationService tokenCreationService;
     private readonly ILogger<PostNotificationService> logger;
     private readonly bool enablePersonalBot;
+    private readonly string channelLanguage;
+    private readonly BotTextService text;
 
     // X Stream ghi Post vào queue rồi tiếp tục đọc, không phải chờ database.
     private readonly Channel<XPostEvent> queue = Channel.CreateUnbounded<XPostEvent>();
 
     // Nhận database scope, service gửi Telegram và logger qua dependency injection.
     public PostNotificationService(IServiceScopeFactory scopeFactory, TelegramNotificationService telegramNotifications,
-        BotOptions options, ILogger<PostNotificationService> logger)
+        TokenCreationService tokenCreationService, BotOptions options, BotTextService text,
+        ILogger<PostNotificationService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.telegramNotifications = telegramNotifications;
+        this.tokenCreationService = tokenCreationService;
         this.logger = logger;
         enablePersonalBot = options.EnablePersonalBot;
+        channelLanguage = BotTextService.Normalize(options.ChannelLanguage);
+        this.text = text;
     }
 
     // Đưa Post vào queue RAM; thao tác này rất nhanh và không chặn X Stream.
@@ -65,6 +74,7 @@ public sealed class PostNotificationService : BackgroundService
 
         XAccount? account = await db.XAccounts.Include(item => item.Watchers)
             .ThenInclude(watcher => watcher.TelegramUser)
+            .ThenInclude(user => user.TradingSettings)
             .FirstOrDefaultAsync(item => item.XUserId == xUserId, cancellationToken);
 
         if (account == null || !IsNewerPost(post.Id, account.LastPostId))
@@ -77,26 +87,39 @@ public sealed class PostNotificationService : BackgroundService
         await db.SaveChangesAsync(cancellationToken);
         logger.LogInformation("[DB] Lưu Post {PostId} thành công.", post.Id);
 
-        XNotificationContent content = XNotificationMessage.Create(account.Username, postEvent.Response);
-
         // Có ChannelId thì gửi một lần vào Channel; Telegram tự báo cho mọi thành viên.
         if (account.TelegramChannelId.HasValue)
         {
-            await telegramNotifications.QueueAsync(account.TelegramChannelId.Value, content.Text, post.Id,
-                postEvent.ReceivedAt, post.CreatedAt, cancellationToken, content.PhotoUrl, content.PostUrl, true);
+            XNotificationContent channelContent = XNotificationMessage.Create(account.Username, postEvent.Response,
+                text, channelLanguage);
+            await telegramNotifications.QueueAsync(account.TelegramChannelId.Value, channelContent.Text, post.Id,
+                postEvent.ReceivedAt, post.CreatedAt, cancellationToken, channelContent.PhotoUrl,
+                channelContent.PostUrl, true, text.Get(channelLanguage, "ViewOnX"));
         }
 
         // Watchlist cá nhân chạy riêng: gửi cho từng người đã tự thêm tài khoản này.
-        List<long> premiumChatIds = account.Watchers
+        List<WatchlistEntry> premiumWatchers = account.Watchers
             .Where(watcher => enablePersonalBot && watcher.TelegramUser.IsPremium)
-            .Select(watcher => watcher.ChatId)
-            .Distinct()
             .ToList();
 
-        foreach (long chatId in premiumChatIds)
+        foreach (WatchlistEntry watcher in premiumWatchers)
         {
-            await telegramNotifications.QueueAsync(chatId, content.Text, post.Id, postEvent.ReceivedAt,
-                post.CreatedAt, cancellationToken, content.PhotoUrl, content.PostUrl, true);
+            string language = BotTextService.Normalize(watcher.TelegramUser.LanguageCode);
+            XNotificationContent content = XNotificationMessage.Create(account.Username, postEvent.Response,
+                text, language);
+            await telegramNotifications.QueueAsync(watcher.ChatId, content.Text, post.Id, postEvent.ReceivedAt,
+                post.CreatedAt, cancellationToken, content.PhotoUrl, content.PostUrl, true,
+                text.Get(language, "ViewOnX"));
+
+            // Mọi hoạt động Post, Reply, Quote và Repost đều được phép tạo token.
+            bool canCreateToken = watcher.TelegramUser.TradingSettings?.EnableTokenCreation == true
+                && TradingNetworks.IsValid(watcher.TokenChain, watcher.TokenDex);
+            if (canCreateToken)
+            {
+                await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, post.Text, content.PhotoUrl,
+                    content.PostUrl, watcher.TokenChain!, watcher.TokenDex!, false,
+                    watcher.TelegramUser.LanguageCode, postEvent.ReceivedAt, cancellationToken);
+            }
         }
 
     }

@@ -37,10 +37,16 @@ public sealed class TelegramUpdate
 
     [JsonPropertyName("message")]
     public TelegramMessage? Message { get; set; }
+
+    [JsonPropertyName("callback_query")]
+    public TelegramCallbackQuery? CallbackQuery { get; set; }
 }
 
 public sealed class TelegramMessage
 {
+    [JsonPropertyName("message_id")]
+    public long MessageId { get; set; }
+
     [JsonPropertyName("chat")]
     public TelegramChat Chat { get; set; } = new TelegramChat();
 
@@ -49,6 +55,21 @@ public sealed class TelegramMessage
 
     [JsonPropertyName("text")]
     public string? Text { get; set; }
+}
+
+public sealed class TelegramCallbackQuery
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("from")]
+    public TelegramFrom From { get; set; } = new TelegramFrom();
+
+    [JsonPropertyName("message")]
+    public TelegramMessage? Message { get; set; }
+
+    [JsonPropertyName("data")]
+    public string? Data { get; set; }
 }
 
 public sealed class TelegramChat
@@ -73,4 +94,22 @@ public sealed class TelegramFrom
 
     [JsonPropertyName("last_name")]
     public string? LastName { get; set; }
+
+    [JsonPropertyName("language_code")]
+    public string? LanguageCode { get; set; }
+}
+
+public sealed class TelegramInlineButton
+{
+    public TelegramInlineButton(string text, string callbackData)
+    {
+        Text = text;
+        CallbackData = callbackData;
+    }
+
+    [JsonPropertyName("text")]
+    public string Text { get; }
+
+    [JsonPropertyName("callback_data")]
+    public string CallbackData { get; }
 }
