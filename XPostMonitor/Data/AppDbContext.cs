@@ -100,7 +100,7 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.TokenSymbol).HasMaxLength(50);
             entity.Property(x => x.WalletAddress).HasMaxLength(64);
             entity.Property(x => x.QuoteTokenAddress).HasMaxLength(64);
-            entity.Property(x => x.EntryPrice).HasColumnType("decimal(38,30)");
+            entity.Property(x => x.EntryPrice).HasColumnType("decimal(28,20)");
             entity.Property(x => x.Status).HasMaxLength(20);
             entity.Property(x => x.ErrorMessage).HasMaxLength(500);
             entity.HasIndex(x => x.Status);
@@ -113,7 +113,7 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.GmgnOrderId).HasMaxLength(64);
             entity.Property(x => x.ProfitPercent).HasColumnType("decimal(10,2)");
             entity.Property(x => x.SellPercent).HasColumnType("decimal(5,2)");
-            entity.Property(x => x.TargetPrice).HasColumnType("decimal(38,30)");
+            entity.Property(x => x.TargetPrice).HasColumnType("decimal(28,20)");
             entity.Property(x => x.Status).HasMaxLength(20);
             entity.Property(x => x.TransactionHash).HasMaxLength(100);
             entity.Property(x => x.RealizedProfitUsd).HasColumnType("decimal(18,8)");

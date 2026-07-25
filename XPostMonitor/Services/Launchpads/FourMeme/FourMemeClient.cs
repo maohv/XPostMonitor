@@ -234,7 +234,7 @@ public sealed class FourMemeClient
         string raisedSymbol = ReadString(raisedToken, "symbol") ?? "BNB";
         Dictionary<string, object?> body = new Dictionary<string, object?>
         {
-            ["name"] = Clean(request.Name, 100),
+            ["name"] = Clean(request.Name, 20),
             ["shortName"] = Clean(request.Symbol, 20),
             ["desc"] = Clean(request.Description, 500),
             ["totalSupply"] = ReadNumber(raisedToken, "totalAmount", 1_000_000_000m),

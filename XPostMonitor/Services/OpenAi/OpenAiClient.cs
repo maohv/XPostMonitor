@@ -165,7 +165,7 @@ public sealed class OpenAiClient
                 + "Avoid traders at screens and candlestick charts unless the post specifically depends on them. Use strong thumbnail "
                 + "contrast. " + imageStyleInstruction + "Any visible text must be that one exact quoted phrase. The image must "
                 + "contain no extra words, URLs, logos, trademarks, token symbols, or watermark. Do not claim endorsement or "
-                + "call the token official. Name must be no more than 64 characters.",
+                + "call the token official. Name must be no more than 20 characters.",
             input,
             reasoning = new { effort = "minimal" },
             max_output_tokens = 500,
@@ -298,9 +298,15 @@ public sealed class OpenAiClient
 
     private static string NormalizeName(string name)
     {
-        string clean = name.Trim();
-        return Regex.Replace(clean,
+        string clean = Regex.Replace(name.Trim(),
             "(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ");
+        if (clean.Length <= 20)
+        {
+            return clean;
+        }
+
+        int lastSpace = clean.LastIndexOf(' ', 19);
+        return clean[..(lastSpace > 0 ? lastSpace : 20)].Trim();
     }
 
     private static string CreateSymbolFromName(string name, string aiSymbol)

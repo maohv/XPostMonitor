@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using XPostMonitor.Configuration;
@@ -149,7 +150,7 @@ public sealed class GmgnClient
 
     public async Task<string> CreateTakeProfitAsync(GmgnCredentials credentials, string chain,
         string walletAddress, string tokenAddress, string quoteTokenAddress, decimal targetPrice,
-        decimal sellPercent, decimal slippagePercent, decimal? gasPriceGwei,
+        BigInteger amountIn, decimal slippagePercent, decimal? gasPriceGwei,
         CancellationToken cancellationToken)
     {
         List<string> arguments =
@@ -162,8 +163,7 @@ public sealed class GmgnClient
             "--order-type", "limit_order",
             "--sub-order-type", "take_profit",
             "--check-price", targetPrice.ToString("G29", CultureInfo.InvariantCulture),
-            "--amount-in-percent", sellPercent.ToString(CultureInfo.InvariantCulture),
-            "--sell-ratio-type", "buy_amount",
+            "--amount-in", amountIn.ToString(CultureInfo.InvariantCulture),
             "--slippage", slippagePercent.ToString(CultureInfo.InvariantCulture),
             "--yes", "--raw"
         ];
@@ -233,6 +233,116 @@ public sealed class GmgnClient
 
         return result.Where(item => item.OrderId.Length > 0)
             .GroupBy(item => item.OrderId).Select(group => group.Last()).ToList();
+    }
+
+    public async Task<string> GetQuoteTokenAsync(GmgnCredentials credentials, string chain,
+        string tokenAddress, CancellationToken cancellationToken)
+    {
+        for (int attempt = 1; attempt <= 15; attempt++)
+        {
+            string output = await RunAsync(
+                ["token", "pool", "--chain", chain, "--address", tokenAddress, "--raw"],
+                credentials.ApiKey, null, false, cancellationToken);
+            string quoteToken = ReadQuoteToken(output);
+            if (!string.IsNullOrWhiteSpace(quoteToken))
+            {
+                return quoteToken;
+            }
+            if (attempt < 15)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            }
+        }
+
+        throw new InvalidOperationException("GMGN has not indexed the token pool yet.");
+    }
+
+    public async Task<string> SellAllAsync(GmgnCredentials credentials, string chain,
+        string walletAddress, string tokenAddress, string quoteTokenAddress, decimal slippagePercent,
+        CancellationToken cancellationToken)
+    {
+        List<string> arguments =
+        [
+            "swap",
+            "--chain", chain,
+            "--from", walletAddress,
+            "--input-token", tokenAddress,
+            "--output-token", quoteTokenAddress,
+            "--percent", "100",
+            "--slippage", slippagePercent.ToString("G29", CultureInfo.InvariantCulture),
+            "--yes", "--raw"
+        ];
+        if (chain == "bsc")
+        {
+            decimal gasPrice = await GetAverageGasPriceGweiAsync(credentials, chain, cancellationToken);
+            arguments.Add("--gas-price");
+            arguments.Add(gasPrice.ToString("G29", CultureInfo.InvariantCulture));
+        }
+
+        string output = await RunAsync(arguments, credentials.ApiKey, credentials.PrivateKey, true,
+            cancellationToken);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement result = document.RootElement.TryGetProperty("data", out JsonElement data)
+            ? data : document.RootElement;
+        string orderId = ReadString(result, "order_id", string.Empty);
+        string transactionHash = ReadString(result, "hash", string.Empty);
+        string status = ReadString(result, "status", string.Empty);
+        if (status == "confirmed")
+        {
+            return transactionHash.Length > 0 ? transactionHash : orderId;
+        }
+        if (status is "failed" or "expired")
+        {
+            throw new InvalidOperationException("GMGN sell order " + status + ".");
+        }
+        if (orderId.Length == 0)
+        {
+            throw new JsonException("GMGN did not return a sell order ID.");
+        }
+
+        return await WaitForSellConfirmationAsync(credentials, chain, orderId, transactionHash,
+            cancellationToken);
+    }
+
+    private async Task<string> WaitForSellConfirmationAsync(GmgnCredentials credentials, string chain,
+        string orderId, string transactionHash, CancellationToken cancellationToken)
+    {
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            if (attempt > 1)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+
+            string output = await RunAsync(
+                ["order", "get", "--chain", chain, "--order-id", orderId, "--raw"],
+                credentials.ApiKey, credentials.PrivateKey, false, cancellationToken);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement result = document.RootElement.TryGetProperty("data", out JsonElement data)
+                ? data : document.RootElement;
+            string status = ReadString(result, "status", string.Empty);
+            string confirmedHash = ReadString(result, "hash", transactionHash);
+            if (status == "confirmed")
+            {
+                return confirmedHash.Length > 0 ? confirmedHash : orderId;
+            }
+            if (status is "failed" or "expired")
+            {
+                string error = ReadString(result, "error_status", "Unknown GMGN error");
+                throw new InvalidOperationException("GMGN sell order " + status + ": " + error);
+            }
+        }
+
+        throw new TimeoutException("GMGN sell order was not confirmed after 10 seconds. Order: " + orderId);
+    }
+
+    public async Task CancelTakeProfitAsync(GmgnCredentials credentials, string chain,
+        string walletAddress, string orderId, CancellationToken cancellationToken)
+    {
+        await RunAsync(
+            ["order", "strategy", "cancel", "--chain", chain, "--from", walletAddress,
+             "--order-id", orderId, "--order-type", "limit_order", "--yes", "--raw"],
+            credentials.ApiKey, credentials.PrivateKey, true, cancellationToken);
     }
 
     private async Task<List<GmgnWallet>> GetWalletsAsync(string apiKey, CancellationToken cancellationToken)
@@ -397,13 +507,27 @@ public sealed class GmgnClient
         }
 
         return activities.EnumerateArray()
-            .Where(item => ReadString(item, "type", string.Empty) == "buy"
+            .Where(item => ReadString(item, "event_type",
+                    ReadString(item, "type", string.Empty)) == "buy"
                 && (!item.TryGetProperty("token", out JsonElement token)
                     || string.Equals(ReadString(token, "address", tokenAddress), tokenAddress,
                         StringComparison.OrdinalIgnoreCase)))
             .OrderByDescending(item => ReadInt64(item, "timestamp"))
-            .Select(item => ReadDecimal(item, "price"))
+            .Select(ReadActivityUsdPrice)
             .FirstOrDefault(price => price > 0);
+    }
+
+    private static decimal ReadActivityUsdPrice(JsonElement activity)
+    {
+        decimal priceUsd = ReadDecimal(activity, "price_usd");
+        if (priceUsd > 0)
+        {
+            return priceUsd;
+        }
+
+        decimal tokenAmount = ReadDecimal(activity, "token_amount");
+        decimal costUsd = ReadDecimal(activity, "cost_usd");
+        return tokenAmount > 0 ? costUsd / tokenAmount : 0;
     }
 
     private static string ReadQuoteToken(string json)
@@ -442,7 +566,7 @@ public sealed class GmgnClient
     private static string Shorten(string text)
     {
         string value = string.IsNullOrWhiteSpace(text) ? "Unknown error" : text.Trim();
-        return value.Length <= 500 ? value : value[..500];
+        return value.Length <= 2000 ? value : value[..2000];
     }
 
     private sealed record GmgnWallet(string Chain, string Address);

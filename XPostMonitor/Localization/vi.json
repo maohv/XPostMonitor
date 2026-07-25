@@ -142,6 +142,8 @@
   ,"TakeProfitFilled": "Đã chốt lời {0}.\nMục tiêu: +{1}%\nĐã bán: {2}% số token ban đầu\nPNL thực nhận: ${3}\nGiao dịch: {4}"
   ,"TakeProfitFailed": "Chốt lời {0} tại +{1}% thất bại."
   ,"AutoTradingCompleted": "Auto Trading đã hoàn thành cho {0}.\nĐã bán: {1}% số token ban đầu\nPNL thực nhận: ${2}"
+  ,"AutoExitSold": "\u0110\u00e3 t\u1ef1 \u0111\u1ed9ng b\u00e1n h\u1ebft {0}.\nL\u00fd do: {1}\nGiao d\u1ecbch b\u00e1n: {2}"
+  ,"AutoExitFailed": "KH\u1ea8N C\u1ea4P: Kh\u00f4ng th\u1ec3 t\u1ef1 b\u00e1n {0}.\nL\u00fd do: {1}\nL\u1ed7i: {2}"
   ,"GmgnAndAutoTrading": "API GMGN & Auto Trading"
   ,"DefaultBuyAmounts": "S\u1ed1 ti\u1ec1n mua m\u1eb7c \u0111\u1ecbnh"
   ,"ChooseBuyAmountNetwork": "Ch\u1ecdn chain \u0111\u1ec3 c\u00e0i s\u1ed1 ti\u1ec1n mua ban \u0111\u1ea7u m\u1eb7c \u0111\u1ecbnh:"

@@ -186,13 +186,19 @@ public sealed class TokenCreationService : BackgroundService
             caption += "\nGMGN: " + gmgnUrl;
         }
 
-        await telegramApi.SendPhotoAsync(request.ChatId, preview.Image, caption, cancellationToken);
         if (!result.IsDryRun && request.EnableAutoTrading && !string.IsNullOrWhiteSpace(result.TokenAddress))
         {
             await autoTradingService.QueueAsync(request.ChatId, request.PostId, request.Chain,
                 result.TokenAddress, preview.Draft.Name, preview.Draft.Symbol, wallet.Address,
-                settings.SlippagePercent, request.Language, cancellationToken);
+                settings.SlippagePercent, result.TransactionHash, request.Language, cancellationToken);
         }
+        else if (!result.IsDryRun)
+        {
+            await AutoTradingDiagnosticLog.WriteAsync("NOT QUEUED | Post=" + request.PostId
+                + " | Symbol=" + preview.Draft.Symbol + " | EnableAutoTrading=" + request.EnableAutoTrading
+                + " | Token=" + (result.TokenAddress ?? "empty"));
+        }
+        await telegramApi.SendPhotoAsync(request.ChatId, preview.Image, caption, cancellationToken);
         logger.LogInformation("[{Launchpad}] Post {PostId} finished. Dry run: {IsDryRun}. Transaction {TransactionHash}.",
             request.Launchpad, request.PostId, result.IsDryRun, result.TransactionHash);
     }

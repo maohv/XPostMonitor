@@ -184,6 +184,8 @@
   ,"TakeProfitFilled": "Take profit completed for {0}.\nTarget: +{1}%\nSold: {2}% of initial tokens\nRealized PnL: ${3}\nTransaction: {4}"
   ,"TakeProfitFailed": "Take profit failed for {0} at +{1}%."
   ,"AutoTradingCompleted": "Auto Trading completed for {0}.\nSold: {1}% of initial tokens\nRealized PnL: ${2}"
+  ,"AutoExitSold": "Auto exit completed for {0}.\nReason: {1}\nSell transaction/order: {2}"
+  ,"AutoExitFailed": "URGENT: Auto exit failed for {0}.\nReason: {1}\nError: {2}"
   ,"GmgnAndAutoTrading": "GMGN API & Auto Trading"
   ,"DefaultBuyAmounts": "Default Buy Amounts"
   ,"ChooseBuyAmountNetwork": "Choose a network to set its default initial buy amount:"
