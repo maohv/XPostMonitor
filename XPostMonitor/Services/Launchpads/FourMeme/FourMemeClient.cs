@@ -67,6 +67,10 @@ public sealed class FourMemeClient
         {
             throw new InvalidOperationException("FourMeme requires a token image.");
         }
+        if (request.CreatorTaxPercent is not (0 or 1 or 3 or 5 or 10))
+        {
+            throw new InvalidOperationException("FourMeme creator tax must be 0%, 1%, 3%, 5% or 10%.");
+        }
 
         SemaphoreSlim walletLock = walletLocks.GetOrAdd(wallet.Address, _ => new SemaphoreSlim(1, 1));
         await walletLock.WaitAsync(cancellationToken);
@@ -92,8 +96,8 @@ public sealed class FourMemeClient
         string accessToken = await LoginAsync(account, cancellationToken);
         string imageUrl = await UploadImageAsync(accessToken, request.Image, cancellationToken);
         JsonElement raisedToken = await GetRaisedTokenAsync(cancellationToken);
-        FourMemePreparedToken prepared = await PrepareTokenAsync(accessToken, raisedToken, imageUrl, request,
-            cancellationToken);
+        FourMemePreparedToken prepared = await PrepareTokenAsync(accessToken, raisedToken, imageUrl,
+            account.Address, request, cancellationToken);
 
         Web3 web3 = new Web3(account, options.RpcUrl);
         var contract = web3.Eth.GetContract(TokenManagerAbi, TokenManagerAddress);
@@ -224,33 +228,48 @@ public sealed class FourMemeClient
     }
 
     private async Task<FourMemePreparedToken> PrepareTokenAsync(string accessToken, JsonElement raisedToken,
-        string imageUrl, FourMemeTokenRequest request, CancellationToken cancellationToken)
+        string imageUrl, string creatorWalletAddress, FourMemeTokenRequest request,
+        CancellationToken cancellationToken)
     {
         string raisedSymbol = ReadString(raisedToken, "symbol") ?? "BNB";
-        var body = new
+        Dictionary<string, object?> body = new Dictionary<string, object?>
         {
-            name = Clean(request.Name, 100),
-            shortName = Clean(request.Symbol, 20),
-            desc = Clean(request.Description, 500),
-            totalSupply = ReadNumber(raisedToken, "totalAmount", 1_000_000_000m),
-            raisedAmount = ReadNumber(raisedToken, "totalBAmount", 24m),
-            saleRate = ReadNumber(raisedToken, "saleRate", 0.8m),
-            reserveRate = 0,
-            imgUrl = imageUrl,
-            raisedToken,
-            launchTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            funGroup = false,
-            label = "Meme",
-            lpTradingFee = 0.0025m,
-            preSale = request.BuyAmount.ToString(CultureInfo.InvariantCulture),
-            clickFun = false,
-            symbol = raisedSymbol,
-            dexType = "PANCAKE_SWAP",
-            rushMode = false,
-            onlyMPC = false,
-            feePlan = false,
-            twitterUrl = request.PostUrl
+            ["name"] = Clean(request.Name, 100),
+            ["shortName"] = Clean(request.Symbol, 20),
+            ["desc"] = Clean(request.Description, 500),
+            ["totalSupply"] = ReadNumber(raisedToken, "totalAmount", 1_000_000_000m),
+            ["raisedAmount"] = ReadNumber(raisedToken, "totalBAmount", 24m),
+            ["saleRate"] = ReadNumber(raisedToken, "saleRate", 0.8m),
+            ["reserveRate"] = 0,
+            ["imgUrl"] = imageUrl,
+            ["raisedToken"] = raisedToken,
+            ["launchTime"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ["funGroup"] = false,
+            ["label"] = "Meme",
+            ["lpTradingFee"] = 0.0025m,
+            ["preSale"] = request.BuyAmount.ToString(CultureInfo.InvariantCulture),
+            ["clickFun"] = false,
+            ["symbol"] = raisedSymbol,
+            ["dexType"] = "PANCAKE_SWAP",
+            ["rushMode"] = false,
+            ["onlyMPC"] = false,
+            ["feePlan"] = false,
+            ["twitterUrl"] = request.PostUrl
         };
+
+        if (request.CreatorTaxPercent > 0)
+        {
+            body["tokenTaxInfo"] = new
+            {
+                feeRate = request.CreatorTaxPercent,
+                burnRate = 0,
+                divideRate = 0,
+                liquidityRate = 0,
+                recipientAddress = creatorWalletAddress,
+                recipientRate = 100,
+                minSharing = 100000
+            };
+        }
 
         JsonElement data = await PostJsonAsync("private/token/create", body, accessToken,
             "Create API", cancellationToken);
@@ -374,7 +393,7 @@ public sealed class FourMemeClient
 }
 
 public sealed record FourMemeTokenRequest(string Name, string Symbol, string Description, byte[] Image,
-    string PostUrl, decimal BuyAmount);
+    string PostUrl, decimal BuyAmount, int CreatorTaxPercent);
 
 public sealed record FourMemeTokenResult(string? TransactionHash, string? TokenAddress,
     BigInteger TransactionValueWei, BigInteger? EstimatedGas, bool IsDryRun, bool HasEnoughBalance);

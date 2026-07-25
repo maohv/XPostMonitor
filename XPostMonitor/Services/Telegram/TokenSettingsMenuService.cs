@@ -49,15 +49,9 @@ public sealed class TokenSettingsMenuService
         [
             [new TelegramInlineButton(text.Get(language, "EnableDisableAuto"), "settings:toggle")],
             [new TelegramInlineButton(text.Get(language, "EvmWallet"), "settings:evm")],
-            [new TelegramInlineButton(text.Get(language, "CheckFourMeme"), "settings:fourmeme")],
-            [new TelegramInlineButton(text.Get(language, "CheckDyorStable"), "settings:dyorstable")],
-            [new TelegramInlineButton(text.Get(language, "CheckLongRobinhood"), "settings:longrobinhood")]
+            [new TelegramInlineButton(text.Get(language, "GmgnAndAutoTrading"), "trading:show")],
+            [new TelegramInlineButton(text.Get(language, "DefaultBuyAmounts"), "settings:amounts")]
         ];
-
-        foreach (LaunchpadNetwork network in LaunchpadCatalog.All)
-        {
-            buttons.Add([new TelegramInlineButton(network.DisplayName, "settings:network:" + network.Chain)]);
-        }
         buttons.Add(CloseButtons(language)[0]);
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
@@ -86,6 +80,10 @@ public sealed class TokenSettingsMenuService
 
             case "network" when parts.Length == 3:
                 await ShowNetworkAsync(chatId, parts[2], language, cancellationToken);
+                return;
+
+            case "amounts":
+                await ShowBuyAmountsAsync(chatId, language, cancellationToken);
                 return;
 
             case "amount" when parts.Length == 3:
@@ -163,9 +161,24 @@ public sealed class TokenSettingsMenuService
         {
             buttons.Add([new TelegramInlineButton(text.Get(language, "ChangeAmount"), "settings:amount:" + chain)]);
         }
-        buttons.Add([new TelegramInlineButton(text.Get(language, "Back"), "settings:back")]);
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Back"), "settings:amounts")]);
         buttons.Add(CloseButtons(language)[0]);
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
+    }
+
+    private async Task ShowBuyAmountsAsync(long chatId, string language,
+        CancellationToken cancellationToken)
+    {
+        List<IReadOnlyList<TelegramInlineButton>> buttons = [];
+        foreach (LaunchpadNetwork network in LaunchpadCatalog.All)
+        {
+            buttons.Add([new TelegramInlineButton(network.DisplayName,
+                "settings:network:" + network.Chain)]);
+        }
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Back"), "settings:back")]);
+        buttons.Add(CloseButtons(language)[0]);
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseBuyAmountNetwork"),
+            buttons, cancellationToken);
     }
 
     private async Task ShowEvmWalletAsync(long chatId, string language, CancellationToken cancellationToken)

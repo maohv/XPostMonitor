@@ -17,6 +17,12 @@ public sealed class TelegramApiClient
         telegramToken = options.TelegramToken;
     }
 
+    public async Task CheckConnectionAsync(CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await httpClient.GetAsync(GetUrl("getMe"), cancellationToken);
+        await CheckResponseAsync(response, cancellationToken);
+    }
+
     // Xóa webhook cũ để bot có thể nhận tin nhắn bằng getUpdates.
     public async Task DeleteWebhookAsync(CancellationToken cancellationToken)
     {

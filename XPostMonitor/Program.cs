@@ -9,6 +9,7 @@ using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
+using XPostMonitor.Services.Launchpads.PonsRobinhood;
 using XPostMonitor.Services.OpenAi;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
@@ -60,6 +61,14 @@ if (string.IsNullOrWhiteSpace(longRobinhoodOptions.PinataJwt))
 }
 builder.Services.AddSingleton(longRobinhoodOptions);
 
+PonsRobinhoodOptions ponsRobinhoodOptions = new PonsRobinhoodOptions();
+builder.Configuration.GetSection(PonsRobinhoodOptions.SectionName).Bind(ponsRobinhoodOptions);
+if (string.IsNullOrWhiteSpace(ponsRobinhoodOptions.PinataJwt))
+{
+    ponsRobinhoodOptions.PinataJwt = longRobinhoodOptions.PinataJwt;
+}
+builder.Services.AddSingleton(ponsRobinhoodOptions);
+
 EvmNetworksOptions evmNetworksOptions = new EvmNetworksOptions();
 builder.Configuration.GetSection(EvmNetworksOptions.SectionName).Bind(evmNetworksOptions);
 builder.Services.AddSingleton(evmNetworksOptions);
@@ -106,6 +115,12 @@ builder.Services.AddHttpClient<LongRobinhoodClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<PonsRobinhoodClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.pinata.cloud/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
 // Các service xử lý chức năng thông thường.
 builder.Services.AddSingleton<WatchlistService>();
 builder.Services.AddSingleton<BotTextService>();
@@ -113,9 +128,12 @@ builder.Services.AddSingleton<LanguageMenuService>();
 builder.Services.AddSingleton<ManualTokenMenuService>();
 builder.Services.AddSingleton<WatchlistMenuService>();
 builder.Services.AddSingleton<TokenSettingsMenuService>();
+builder.Services.AddSingleton<AutoTradingMenuService>();
 builder.Services.AddSingleton<ChannelWatchlistService>();
 builder.Services.AddSingleton<PremiumService>();
 builder.Services.AddSingleton<GmgnClient>();
+builder.Services.AddSingleton<AutoTradingSettingsService>();
+builder.Services.AddSingleton<AutoTradingService>();
 builder.Services.AddSingleton<EvmWalletService>();
 builder.Services.AddSingleton<TokenSettingsService>();
 builder.Services.AddSingleton<TokenPreviewService>();
@@ -126,7 +144,9 @@ builder.Services.AddSingleton<TelegramNotificationService>();
 // Các background service chạy độc lập và không phải chờ nhau hoàn thành.
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<TelegramNotificationService>());
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<TokenCreationService>());
+builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutoTradingService>());
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PostNotificationService>());
+builder.Services.AddHostedService<ApiHealthMonitorService>();
 builder.Services.AddHostedService<XRuleSyncService>();
 builder.Services.AddHostedService<XStreamService>();
 builder.Services.AddHostedService<XActivitySubscriptionSyncService>();

@@ -21,8 +21,12 @@
   "SelectionExpired": "Lựa chọn không còn hợp lệ. Hãy dùng lại /add.", "UnsupportedNetwork": "Network không được hỗ trợ. Hãy dùng lại /add.",
   "UnsupportedSelection": "Lựa chọn không được hỗ trợ. Hãy dùng lại /add.", "ChooseLaunchpad": "Chọn launchpad trên {0}:",
   "ChooseLongAnchor": "Chọn mã cổ phiếu neo cho Long:",
+  "ChooseCreatorTax": "Chọn phí nhà sáng tạo sau khi token lên sàn:",
   "PleaseConfirm": "Vui lòng xác nhận:", "Account": "Tài khoản", "Network": "Network", "Launchpad": "Launchpad",
   "StockAnchor": "Cổ phiếu neo",
+  "CreatorTax": "Phí nhà sáng tạo",
+  "CreatorFee": "Phần phí nhà sáng tạo",
+  "NoCreatorTax": "Không thu phí",
   "SettingsTitle": "⚙️ Cài đặt tạo token", "Configured": "✅ Đã cấu hình", "NotConfigured": "❌ Chưa cấu hình",
   "Enabled": "🟢 Đang bật", "Disabled": "🔴 Đang tắt", "AutoCreateLabel": "Tự động tạo",
   "NotSet": "Chưa đặt", "GasOnly": "Chỉ cần gas - không mua ban đầu", "EnableDisableAuto": "Bật / Tắt Auto Create",
@@ -99,4 +103,46 @@
   "DryRunBalanceEnough": "đủ tiền để chuyển sang live sau này",
   "DryRunBalanceLow": "cần nạp thêm tiền trước khi bật live",
   "RepostTokenSkipped": "Bài đăng lại chỉ gửi thông báo và không tạo token."
+  ,"TradingSettingsTitle": "Auto Trading"
+  ,"TakeProfitLevels": "Các mức chốt lời"
+  ,"NoTakeProfitLevels": "Chưa cấu hình mức chốt lời."
+  ,"ConnectGmgn": "Tạo kết nối GMGN"
+  ,"EnterApiKey": "Nhập GMGN API key"
+  ,"CheckGmgn": "Kiểm tra kết nối GMGN"
+  ,"AddTakeProfit": "Thêm mức chốt lời"
+  ,"DeleteTakeProfit": "Xóa +{0}% -> {1}%"
+  ,"GenerateWarning": "Bot sẽ tạo khóa ký. Hãy thêm public key và IP server vào GMGN API key, sau đó nhập API key vào bot."
+  ,"GenerateKey": "Tạo khóa ký"
+  ,"ServerIpMissing": "Chưa cấu hình PublicServerIp trong phần GMGN."
+  ,"ConnectionCreated": "Đã tạo khóa ký GMGN.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nThêm hai giá trị này vào GMGN, sau đó nhập API key."
+  ,"GenerateFailed": "Không thể tạo khóa ký GMGN: {0}"
+  ,"SendApiKey": "Gửi GMGN API key. Bot sẽ xóa tin nhắn này sau khi lưu."
+  ,"InvalidApiKey": "GMGN API key không hợp lệ."
+  ,"GenerateFirst": "Hãy tạo khóa ký GMGN trước."
+  ,"ApiKeySaved": "Đã mã hóa và lưu GMGN API key."
+  ,"ConnectFirst": "Hãy kết nối GMGN trước."
+  ,"GmgnConnected": "Đã kết nối GMGN. Các chain có ví: {0}"
+  ,"GmgnFailed": "Kết nối GMGN thất bại: {0}"
+  ,"SendTakeProfit": "Nhập một hoặc nhiều mức TP, mỗi mức một dòng. Ví dụ:\n120 40\n200 30\n300 30"
+  ,"InvalidTakeProfit": "Mỗi mức TP cần hai số: phần trăm lãi và phần trăm bán. Ví dụ:\n120 40\n200 30\n300 30"
+  ,"DuplicateTakeProfit": "Đã có mức chốt lời với phần trăm lãi này."
+  ,"TakeProfitLimit": "Chỉ hỗ trợ tối đa 4 mức chốt lời."
+  ,"TakeProfitTotalTooHigh": "Tổng phần trăm bán của các mức chốt lời không được vượt quá 100%."
+  ,"TakeProfitSaved": "Đã lưu các mức chốt lời."
+  ,"TakeProfitDeleted": "Đã xóa mức chốt lời."
+  ,"AutoTrading": "Auto Trading"
+  ,"ChooseAutoTrading": "Bật Auto Trading cho @{0}?"
+  ,"EnableAutoTrading": "Bật Auto Trading"
+  ,"DisableAutoTrading": "Tắt Auto Trading"
+  ,"AutoTradingEnabled": "Auto Trading đang bật"
+  ,"AutoTradingDisabled": "Auto Trading đang tắt"
+  ,"AutoTradingUnsupported": "GMGN hiện chưa hỗ trợ Auto Trading trên chain này. Bạn vẫn có thể bật tạo token."
+  ,"AutoTradingStarted": "Đã tạo lệnh chốt lời GMGN cho {0}:\n\n{1}"
+  ,"AutoTradingFailed": "Token đã được tạo nhưng không thể bật Auto Trading: {0}"
+  ,"TakeProfitFilled": "Đã chốt lời {0}.\nMục tiêu: +{1}%\nĐã bán: {2}% số token ban đầu\nPNL thực nhận: ${3}\nGiao dịch: {4}"
+  ,"TakeProfitFailed": "Chốt lời {0} tại +{1}% thất bại."
+  ,"AutoTradingCompleted": "Auto Trading đã hoàn thành cho {0}.\nĐã bán: {1}% số token ban đầu\nPNL thực nhận: ${2}"
+  ,"GmgnAndAutoTrading": "API GMGN & Auto Trading"
+  ,"DefaultBuyAmounts": "S\u1ed1 ti\u1ec1n mua m\u1eb7c \u0111\u1ecbnh"
+  ,"ChooseBuyAmountNetwork": "Ch\u1ecdn chain \u0111\u1ec3 c\u00e0i s\u1ed1 ti\u1ec1n mua ban \u0111\u1ea7u m\u1eb7c \u0111\u1ecbnh:"
 }

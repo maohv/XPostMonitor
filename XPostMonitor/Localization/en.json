@@ -42,11 +42,15 @@
   "UnsupportedSelection": "Unsupported selection. Use /add again.",
   "ChooseLaunchpad": "Choose a launchpad on {0}:",
   "ChooseLongAnchor": "Choose the stock anchor for Long:",
+  "ChooseCreatorTax": "Choose the creator tax after graduation:",
   "PleaseConfirm": "Please confirm:",
   "Account": "Account",
   "Network": "Network",
   "Launchpad": "Launchpad",
   "StockAnchor": "Stock anchor",
+  "CreatorTax": "Creator tax",
+  "CreatorFee": "Creator fee share",
+  "NoCreatorTax": "No creator tax",
   "SettingsTitle": "⚙️ Token Settings",
   "Configured": "✅ Configured",
   "NotConfigured": "❌ Not configured",
@@ -141,4 +145,46 @@
   "DryRunBalanceEnough": "enough for a future live transaction",
   "DryRunBalanceLow": "needs more balance before live mode",
   "RepostTokenSkipped": "Reposts only send notifications and do not create tokens."
+  ,"TradingSettingsTitle": "Auto Trading"
+  ,"TakeProfitLevels": "Take-profit levels"
+  ,"NoTakeProfitLevels": "No take-profit levels configured."
+  ,"ConnectGmgn": "Create GMGN connection"
+  ,"EnterApiKey": "Enter GMGN API key"
+  ,"CheckGmgn": "Check GMGN connection"
+  ,"AddTakeProfit": "Add take-profit level"
+  ,"DeleteTakeProfit": "Delete +{0}% -> {1}%"
+  ,"GenerateWarning": "The bot will create a signing key. Add the public key and server IP to your GMGN API key, then enter the API key here."
+  ,"GenerateKey": "Create signing key"
+  ,"ServerIpMissing": "PublicServerIp is missing from GMGN configuration."
+  ,"ConnectionCreated": "GMGN signing key created.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nAdd both values to GMGN, then enter your API key."
+  ,"GenerateFailed": "Could not create the GMGN signing key: {0}"
+  ,"SendApiKey": "Send your GMGN API key. This message will be deleted after it is saved."
+  ,"InvalidApiKey": "Invalid GMGN API key."
+  ,"GenerateFirst": "Create the GMGN signing key first."
+  ,"ApiKeySaved": "GMGN API key saved and encrypted."
+  ,"ConnectFirst": "Connect GMGN first."
+  ,"GmgnConnected": "GMGN connected. Wallet chains: {0}"
+  ,"GmgnFailed": "GMGN connection failed: {0}"
+  ,"SendTakeProfit": "Send one or more take-profit levels. Put each level on a new line. Example:\n120 40\n200 30\n300 30"
+  ,"InvalidTakeProfit": "Each level needs two numbers: profit percent and sell percent. Example:\n120 40\n200 30\n300 30"
+  ,"DuplicateTakeProfit": "A take-profit level with this profit percentage already exists."
+  ,"TakeProfitLimit": "A maximum of 4 take-profit levels is supported."
+  ,"TakeProfitTotalTooHigh": "Total sell percentage across all take-profit levels cannot exceed 100%."
+  ,"TakeProfitSaved": "Take-profit levels saved."
+  ,"TakeProfitDeleted": "Take-profit level deleted."
+  ,"AutoTrading": "Auto Trading"
+  ,"ChooseAutoTrading": "Enable Auto Trading for @{0}?"
+  ,"EnableAutoTrading": "Enable Auto Trading"
+  ,"DisableAutoTrading": "Disable Auto Trading"
+  ,"AutoTradingEnabled": "Auto Trading on"
+  ,"AutoTradingDisabled": "Auto Trading off"
+  ,"AutoTradingUnsupported": "GMGN does not currently support Auto Trading on this chain. Token creation can still be enabled."
+  ,"AutoTradingStarted": "GMGN take-profit orders created for {0}:\n\n{1}"
+  ,"AutoTradingFailed": "Token was created, but Auto Trading could not start: {0}"
+  ,"TakeProfitFilled": "Take profit completed for {0}.\nTarget: +{1}%\nSold: {2}% of initial tokens\nRealized PnL: ${3}\nTransaction: {4}"
+  ,"TakeProfitFailed": "Take profit failed for {0} at +{1}%."
+  ,"AutoTradingCompleted": "Auto Trading completed for {0}.\nSold: {1}% of initial tokens\nRealized PnL: ${2}"
+  ,"GmgnAndAutoTrading": "GMGN API & Auto Trading"
+  ,"DefaultBuyAmounts": "Default Buy Amounts"
+  ,"ChooseBuyAmountNetwork": "Choose a network to set its default initial buy amount:"
 }

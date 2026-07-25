@@ -234,10 +234,11 @@ public sealed class TokenPreviewService
     {
         return chain?.ToLowerInvariant() switch
         {
-            "bsc" => "BNB yellow #F0B90B, charcoal black #0B0E11, and white accents.",
-            "base" => "Base blue #0052FF, clean white, and deep navy accents.",
-            "sol" => "Solana electric purple #9945FF, mint green #14F195, cyan, and black.",
-            "robinhood" => "Robinhood vivid green #00C805, black, and white accents.",
+            "bsc" => "Keep natural subject colors dominant. Add subtle BNB yellow #F0B90B, charcoal black, and white accents only in lighting, edges, or background details.",
+            "base" => "Keep natural subject colors dominant. Add subtle Base blue #0052FF, white, and deep navy accents only in lighting, edges, or background details.",
+            "sol" => "Keep natural subject colors dominant. Add subtle Solana purple #9945FF, mint green #14F195, and cyan accents only in lighting, edges, or background details.",
+            "robinhood" => "Keep natural subject colors dominant. Add subtle Robinhood green #00C805, black, and white accents only in lighting, edges, or background details.",
+            "stable" => "Keep natural subject colors dominant. Add subtle Stable emerald green #00D395, cool teal, white, and graphite accents only in lighting, edges, or background details.",
             _ => null
         };
     }

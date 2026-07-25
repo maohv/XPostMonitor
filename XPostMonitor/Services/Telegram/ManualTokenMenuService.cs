@@ -21,12 +21,14 @@ public sealed class ManualTokenMenuService
     private readonly FourMemeOptions fourMemeOptions;
     private readonly DyorStableOptions dyorStableOptions;
     private readonly LongRobinhoodOptions longRobinhoodOptions;
+    private readonly PonsRobinhoodOptions ponsRobinhoodOptions;
     private readonly BotTextService text;
 
     public ManualTokenMenuService(TelegramApiClient telegramApi, XApiClient xApiClient,
         TokenSettingsService tokenSettings, TokenCreationService tokenCreation,
         EvmWalletService evmWalletService, FourMemeOptions fourMemeOptions,
-        DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions, BotTextService text)
+        DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions,
+        PonsRobinhoodOptions ponsRobinhoodOptions, BotTextService text)
     {
         this.telegramApi = telegramApi;
         this.xApiClient = xApiClient;
@@ -36,6 +38,7 @@ public sealed class ManualTokenMenuService
         this.fourMemeOptions = fourMemeOptions;
         this.dyorStableOptions = dyorStableOptions;
         this.longRobinhoodOptions = longRobinhoodOptions;
+        this.ponsRobinhoodOptions = ponsRobinhoodOptions;
         this.text = text;
     }
 
@@ -83,10 +86,18 @@ public sealed class ManualTokenMenuService
         }
 
         string[] route = parts[3].Split(',', 3);
-        string? anchor = route.Length == 3 ? route[2] : null;
+        string? anchor = route.Length == 3 && route[1] == "long" ? route[2] : null;
+        int creatorTaxPercent = route.Length == 3 && route[1] == "fourmeme"
+            && int.TryParse(route[2], out int tax) ? tax : 0;
         if (parts[1] == "market" && route.Length >= 2 && LaunchpadCatalog.IsValid(route[0], route[1]))
         {
             await ShowLongAnchorsAsync(chatId, postId, route[0], route[1], language, cancellationToken);
+            return;
+        }
+
+        if (parts[1] == "tax" && route.Length >= 2 && route[1] == "fourmeme")
+        {
+            await ShowCreatorTaxAsync(chatId, postId, route[0], route[1], language, cancellationToken);
             return;
         }
 
@@ -98,11 +109,13 @@ public sealed class ManualTokenMenuService
 
         if (parts[1] == "confirm")
         {
-            await ShowConfirmationAsync(chatId, postId, route[0], route[1], anchor, language, cancellationToken);
+            await ShowConfirmationAsync(chatId, postId, route[0], route[1], anchor, creatorTaxPercent,
+                language, cancellationToken);
         }
         else if (parts[1] == "create")
         {
-            await CreateAsync(chatId, postId, route[0], route[1], anchor, language, cancellationToken);
+            await CreateAsync(chatId, postId, route[0], route[1], anchor, creatorTaxPercent,
+                language, cancellationToken);
         }
     }
 
@@ -120,7 +133,9 @@ public sealed class ManualTokenMenuService
             .Select(launchpad => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(launchpad.DisplayName, launchpad.Code == "long"
                     ? "manual:market:" + postId + ":" + chain + "," + launchpad.Code
-                    : "manual:confirm:" + postId + ":" + chain + "," + launchpad.Code)])
+                    : launchpad.Code == "fourmeme"
+                        ? "manual:tax:" + postId + ":" + chain + "," + launchpad.Code
+                        : "manual:confirm:" + postId + ":" + chain + "," + launchpad.Code)])
             .ToList();
         buttons.Add([new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]);
 
@@ -142,8 +157,22 @@ public sealed class ManualTokenMenuService
             cancellationToken);
     }
 
+    private async Task ShowCreatorTaxAsync(long chatId, string postId, string chain, string dex, string language,
+        CancellationToken cancellationToken)
+    {
+        int[] rates = [0, 1, 3, 5, 10];
+        List<IReadOnlyList<TelegramInlineButton>> buttons = rates
+            .Select(rate => (IReadOnlyList<TelegramInlineButton>)
+                [new TelegramInlineButton(rate == 0 ? text.Get(language, "NoCreatorTax") : rate + "%",
+                    "manual:confirm:" + postId + ":" + chain + "," + dex + "," + rate)])
+            .ToList();
+        buttons.Add([new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]);
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseCreatorTax"), buttons,
+            cancellationToken);
+    }
+
     private async Task ShowConfirmationAsync(long chatId, string postId, string chain, string dex, string? anchor,
-        string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, string language, CancellationToken cancellationToken)
     {
         EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, cancellationToken);
         TokenCreateSettings? settings = await tokenSettings.GetChainSettingsAsync(chatId, chain,
@@ -181,18 +210,27 @@ public sealed class ManualTokenMenuService
         {
             message += "\n" + text.Get(language, "StockAnchor") + ": " + anchor;
         }
+        if (dex == "fourmeme")
+        {
+            message += "\n" + text.Get(language, "CreatorTax") + ": "
+                + (creatorTaxPercent == 0 ? text.Get(language, "NoCreatorTax") : creatorTaxPercent + "%");
+        }
+        if (dex == "pons")
+        {
+            message += "\n" + text.Get(language, "CreatorFee") + ": 70%";
+        }
         IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
         [
             [new TelegramInlineButton(text.Get(language, live ? "CreateRealToken" : "RunTokenTest"),
                 "manual:create:" + postId + ":" + chain + "," + dex
-                    + (anchor == null ? string.Empty : "," + anchor))],
+                    + (anchor != null ? "," + anchor : dex == "fourmeme" ? "," + creatorTaxPercent : string.Empty))],
             [new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]
         ];
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
 
     private async Task CreateAsync(long chatId, string postId, string chain, string dex, string? anchor,
-        string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, string language, CancellationToken cancellationToken)
     {
         try
         {
@@ -211,7 +249,7 @@ public sealed class ManualTokenMenuService
                 ? "[POST_TYPE=reply]\n" + post.Text
                 : post.Text;
             bool queued = await tokenCreation.QueueManualAsync(chatId, postId, tokenText,
-                post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, language,
+                post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, creatorTaxPercent, language,
                 cancellationToken);
             if (!queued)
             {
@@ -238,8 +276,13 @@ public sealed class ManualTokenMenuService
             return fourMemeOptions.EnableRealTransactions;
         }
 
-        return launchpad == "dyorswap"
-            ? dyorStableOptions.EnableRealTransactions
+        if (launchpad == "dyorswap")
+        {
+            return dyorStableOptions.EnableRealTransactions;
+        }
+
+        return launchpad == "pons"
+            ? ponsRobinhoodOptions.EnableRealTransactions
             : longRobinhoodOptions.EnableRealTransactions;
     }
 }

@@ -6,6 +6,8 @@ using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
+using XPostMonitor.Services.Launchpads.PonsRobinhood;
+using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
 using XPostMonitor.Services.Wallets;
@@ -20,7 +22,9 @@ public sealed class TokenCreationService : BackgroundService
     private readonly FourMemeClient fourMemeClient;
     private readonly DyorStableClient dyorStableClient;
     private readonly LongRobinhoodClient longRobinhoodClient;
+    private readonly PonsRobinhoodClient ponsRobinhoodClient;
     private readonly EvmWalletService evmWalletService;
+    private readonly AutoTradingService autoTradingService;
     private readonly TelegramApiClient telegramApi;
     private readonly ILogger<TokenCreationService> logger;
     private readonly BotTextService text;
@@ -29,7 +33,8 @@ public sealed class TokenCreationService : BackgroundService
 
     public TokenCreationService(TokenSettingsService tokenSettings, TokenPreviewService tokenPreviewService,
         FourMemeClient fourMemeClient, DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient,
-        EvmWalletService evmWalletService, TelegramApiClient telegramApi, BotTextService text,
+        PonsRobinhoodClient ponsRobinhoodClient, EvmWalletService evmWalletService,
+        AutoTradingService autoTradingService, TelegramApiClient telegramApi, BotTextService text,
         ILogger<TokenCreationService> logger)
     {
         this.tokenSettings = tokenSettings;
@@ -37,7 +42,9 @@ public sealed class TokenCreationService : BackgroundService
         this.fourMemeClient = fourMemeClient;
         this.dyorStableClient = dyorStableClient;
         this.longRobinhoodClient = longRobinhoodClient;
+        this.ponsRobinhoodClient = ponsRobinhoodClient;
         this.evmWalletService = evmWalletService;
+        this.autoTradingService = autoTradingService;
         this.telegramApi = telegramApi;
         this.text = text;
         this.logger = logger;
@@ -45,16 +52,17 @@ public sealed class TokenCreationService : BackgroundService
 
     public ValueTask QueueAsync(long chatId, string postId, string postText, string? sourceLanguage,
         string? photoUrl, string postUrl, string chain, string launchpad, string? anchor, bool useOriginalImage,
-        string language, DateTimeOffset receivedAt, CancellationToken cancellationToken)
+        int creatorTaxPercent, bool enableAutoTrading, string language, DateTimeOffset receivedAt,
+        CancellationToken cancellationToken)
     {
         return queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, postText, sourceLanguage, photoUrl,
-            postUrl, chain, launchpad, anchor, useOriginalImage, BotTextService.Normalize(language), receivedAt,
-            false, null), cancellationToken);
+            postUrl, chain, launchpad, anchor, useOriginalImage, creatorTaxPercent,
+            enableAutoTrading, BotTextService.Normalize(language), receivedAt, false, null), cancellationToken);
     }
 
     public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string postText,
         string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string? anchor,
-        string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, string language, CancellationToken cancellationToken)
     {
         string jobKey = chatId + ":" + postId + ":" + chain + ":" + launchpad + ":" + anchor;
         if (!manualJobs.TryAdd(jobKey, 0))
@@ -66,7 +74,8 @@ public sealed class TokenCreationService : BackgroundService
         {
             await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, postText, sourceLanguage,
                 photoUrl, postUrl, chain, launchpad, anchor, !string.IsNullOrWhiteSpace(photoUrl),
-                BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey), cancellationToken);
+                creatorTaxPercent, true, BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey),
+                cancellationToken);
             return true;
         }
         catch
@@ -163,6 +172,10 @@ public sealed class TokenCreationService : BackgroundService
         {
             caption += "\n" + text.Get(request.Language, "StockAnchor") + ": " + request.Anchor;
         }
+        if (request.Launchpad == "pons")
+        {
+            caption += "\n" + text.Get(request.Language, "CreatorFee") + ": 70%";
+        }
         if (!string.IsNullOrWhiteSpace(result.TransactionHash))
         {
             caption += "\n" + text.Get(request.Language, "Transaction") + ": " + result.TransactionHash;
@@ -174,6 +187,12 @@ public sealed class TokenCreationService : BackgroundService
         }
 
         await telegramApi.SendPhotoAsync(request.ChatId, preview.Image, caption, cancellationToken);
+        if (!result.IsDryRun && request.EnableAutoTrading && !string.IsNullOrWhiteSpace(result.TokenAddress))
+        {
+            await autoTradingService.QueueAsync(request.ChatId, request.PostId, request.Chain,
+                result.TokenAddress, preview.Draft.Name, preview.Draft.Symbol, wallet.Address,
+                settings.SlippagePercent, request.Language, cancellationToken);
+        }
         logger.LogInformation("[{Launchpad}] Post {PostId} finished. Dry run: {IsDryRun}. Transaction {TransactionHash}.",
             request.Launchpad, request.PostId, result.IsDryRun, result.TransactionHash);
     }
@@ -185,7 +204,8 @@ public sealed class TokenCreationService : BackgroundService
         if (request.Launchpad == "fourmeme")
         {
             FourMemeTokenRequest tokenRequest = new FourMemeTokenRequest(preview.Draft.Name,
-                preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount);
+                preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount,
+                request.CreatorTaxPercent);
             FourMemeTokenResult result = await fourMemeClient.CreateTokenAsync(wallet, tokenRequest,
                 cancellationToken);
             return new TokenResult(result.TransactionHash, result.EstimatedGas, result.IsDryRun,
@@ -200,6 +220,16 @@ public sealed class TokenCreationService : BackgroundService
                 cancellationToken);
             return new TokenResult(dyorResult.TransactionHash, dyorResult.EstimatedGas, dyorResult.IsDryRun,
                 dyorResult.HasEnoughBalance, dyorResult.TokenAddress);
+        }
+
+        if (request.Launchpad == "pons")
+        {
+            PonsRobinhoodTokenRequest ponsRequest = new PonsRobinhoodTokenRequest(preview.Draft.Name,
+                preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount);
+            PonsRobinhoodTokenResult ponsResult = await ponsRobinhoodClient.CreateTokenAsync(wallet, ponsRequest,
+                cancellationToken);
+            return new TokenResult(ponsResult.TransactionHash, ponsResult.EstimatedGas, ponsResult.IsDryRun,
+                ponsResult.HasEnoughBalance, ponsResult.TokenAddress);
         }
 
         LongRobinhoodTokenRequest longRequest = new LongRobinhoodTokenRequest(preview.Draft.Name,
@@ -220,8 +250,8 @@ public sealed class TokenCreationService : BackgroundService
 
     private sealed record TokenCreationRequest(long ChatId, string PostId, string PostText,
         string? SourceLanguage, string? PhotoUrl, string PostUrl, string Chain, string Launchpad,
-        string? Anchor, bool UseOriginalImage, string Language, DateTimeOffset ReceivedAt, bool IsManual,
-        string? ManualJobKey);
+        string? Anchor, bool UseOriginalImage, int CreatorTaxPercent, bool EnableAutoTrading, string Language,
+        DateTimeOffset ReceivedAt, bool IsManual, string? ManualJobKey);
 
     private sealed record TokenResult(string? TransactionHash, BigInteger? EstimatedGas, bool IsDryRun,
         bool HasEnoughBalance, string? TokenAddress);

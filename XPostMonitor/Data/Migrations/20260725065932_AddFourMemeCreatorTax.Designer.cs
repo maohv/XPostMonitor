@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using XPostMonitor.Data;
 
@@ -11,9 +12,11 @@ using XPostMonitor.Data;
 namespace XPostMonitor.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260725065932_AddFourMemeCreatorTax")]
+    partial class AddFourMemeCreatorTax
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,160 +24,6 @@ namespace XPostMonitor.Data.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
-
-            modelBuilder.Entity("XPostMonitor.Models.AutoTrade", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Chain")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<long>("ChatId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("CompletedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("EntryPrice")
-                        .HasColumnType("decimal(38,30)");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("PostId")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("QuoteTokenAddress")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("TokenAddress")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("TokenName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("TokenSymbol")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("WalletAddress")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChatId");
-
-                    b.HasIndex("Status");
-
-                    b.ToTable("AutoTrades");
-                });
-
-            modelBuilder.Entity("XPostMonitor.Models.AutoTradeOrder", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<long>("AutoTradeId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("ClosedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("GmgnOrderId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<DateTime?>("NotifiedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("ProfitPercent")
-                        .HasColumnType("decimal(10,2)");
-
-                    b.Property<decimal?>("RealizedProfitUsd")
-                        .HasColumnType("decimal(18,8)");
-
-                    b.Property<decimal>("SellPercent")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<decimal>("TargetPrice")
-                        .HasColumnType("decimal(38,30)");
-
-                    b.Property<string>("TransactionHash")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AutoTradeId");
-
-                    b.HasIndex("GmgnOrderId")
-                        .IsUnique();
-
-                    b.ToTable("AutoTradeOrders");
-                });
-
-            modelBuilder.Entity("XPostMonitor.Models.TakeProfitSetting", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<long>("ChatId")
-                        .HasColumnType("bigint");
-
-                    b.Property<decimal>("ProfitPercent")
-                        .HasColumnType("decimal(10,2)");
-
-                    b.Property<decimal>("SellPercent")
-                        .HasColumnType("decimal(5,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChatId", "ProfitPercent")
-                        .IsUnique();
-
-                    b.ToTable("TakeProfitSettings");
-                });
 
             modelBuilder.Entity("XPostMonitor.Models.TelegramUser", b =>
                 {
@@ -280,11 +129,6 @@ namespace XPostMonitor.Data.Migrations
                         .HasColumnType("int")
                         .HasDefaultValue(0);
 
-                    b.Property<bool>("EnableAutoTrading")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
-
                     b.Property<string>("TokenAnchor")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
@@ -365,39 +209,6 @@ namespace XPostMonitor.Data.Migrations
                     b.ToTable("XSubscriptions");
                 });
 
-            modelBuilder.Entity("XPostMonitor.Models.AutoTrade", b =>
-                {
-                    b.HasOne("XPostMonitor.Models.TelegramUser", "TelegramUser")
-                        .WithMany("AutoTrades")
-                        .HasForeignKey("ChatId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TelegramUser");
-                });
-
-            modelBuilder.Entity("XPostMonitor.Models.AutoTradeOrder", b =>
-                {
-                    b.HasOne("XPostMonitor.Models.AutoTrade", "AutoTrade")
-                        .WithMany("Orders")
-                        .HasForeignKey("AutoTradeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AutoTrade");
-                });
-
-            modelBuilder.Entity("XPostMonitor.Models.TakeProfitSetting", b =>
-                {
-                    b.HasOne("XPostMonitor.Models.TelegramUser", "TelegramUser")
-                        .WithMany("TakeProfitSettings")
-                        .HasForeignKey("ChatId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TelegramUser");
-                });
-
             modelBuilder.Entity("XPostMonitor.Models.UserChainTradingSettings", b =>
                 {
                     b.HasOne("XPostMonitor.Models.TelegramUser", "TelegramUser")
@@ -450,18 +261,9 @@ namespace XPostMonitor.Data.Migrations
                     b.Navigation("XAccount");
                 });
 
-            modelBuilder.Entity("XPostMonitor.Models.AutoTrade", b =>
-                {
-                    b.Navigation("Orders");
-                });
-
             modelBuilder.Entity("XPostMonitor.Models.TelegramUser", b =>
                 {
-                    b.Navigation("AutoTrades");
-
                     b.Navigation("ChainTradingSettings");
-
-                    b.Navigation("TakeProfitSettings");
 
                     b.Navigation("TradingSettings");
 

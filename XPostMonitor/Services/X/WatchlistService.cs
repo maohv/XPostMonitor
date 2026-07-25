@@ -27,7 +27,7 @@ public sealed class WatchlistService
 
     // Kiểm tra username trên X rồi thêm tài khoản vào watchlist của Telegram user.
     public async Task<string> AddAsync(long chatId, string? username, string? chain, string? dex, string? anchor,
-        string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, bool enableAutoTrading, string language, CancellationToken cancellationToken)
     {
         username = username?.Trim().TrimStart('@');
         if (!IsValidXUsername(username))
@@ -37,6 +37,13 @@ public sealed class WatchlistService
 
         bool alertsOnly = string.IsNullOrWhiteSpace(chain) && string.IsNullOrWhiteSpace(dex);
         if (!alertsOnly && !LaunchpadCatalog.IsValidRoute(chain, dex, anchor))
+        {
+            return text.Get(language, "UnsupportedRoute");
+        }
+
+        creatorTaxPercent = string.Equals(dex, "fourmeme", StringComparison.OrdinalIgnoreCase)
+            ? creatorTaxPercent : 0;
+        if (creatorTaxPercent is not (0 or 1 or 3 or 5 or 10))
         {
             return text.Get(language, "UnsupportedRoute");
         }
@@ -70,11 +77,16 @@ public sealed class WatchlistService
                 existingEntry.TokenChain = alertsOnly ? null : chain;
                 existingEntry.TokenDex = alertsOnly ? null : dex;
                 existingEntry.TokenAnchor = alertsOnly ? null : anchor;
+                existingEntry.CreatorTaxPercent = creatorTaxPercent;
+                existingEntry.EnableAutoTrading = enableAutoTrading;
                 existingEntry.XAccount.Username = xUser.Username;
                 existingEntry.XAccount.DisplayName = xUser.Name;
                 existingEntry.XAccount.UpdatedAtUtc = DateTime.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
-                return text.Get(language, "WatchUpdated", xUser.Username, FormatMode(chain, dex, anchor, language));
+                return text.Get(language, "WatchUpdated", xUser.Username,
+                    FormatMode(chain, dex, anchor, creatorTaxPercent, language)
+                    + (alertsOnly ? string.Empty : " | " + text.Get(language,
+                        enableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled")));
             }
 
             DateTime now = DateTime.UtcNow;
@@ -100,12 +112,17 @@ public sealed class WatchlistService
                 TokenChain = alertsOnly ? null : chain,
                 TokenDex = alertsOnly ? null : dex,
                 TokenAnchor = alertsOnly ? null : anchor,
+                CreatorTaxPercent = creatorTaxPercent,
+                EnableAutoTrading = enableAutoTrading,
                 CreatedAtUtc = now
             });
 
             await db.SaveChangesAsync(cancellationToken);
             logger.LogInformation("[DB] Thêm @{Username} vào watchlist thành công.", xUser.Username);
-            return text.Get(language, "WatchAdded", xUser.Username, FormatMode(chain, dex, anchor, language));
+            return text.Get(language, "WatchAdded", xUser.Username,
+                FormatMode(chain, dex, anchor, creatorTaxPercent, language)
+                + (alertsOnly ? string.Empty : " | " + text.Get(language,
+                    enableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled")));
         }
         catch (HttpRequestException exception)
         {
@@ -184,7 +201,13 @@ public sealed class WatchlistService
                 ? text.Get(language, "AlertsOnly")
                 : network.DisplayName + " · " + launchpad.DisplayName
                     + (entry.TokenAnchor == null ? string.Empty : " · " + entry.TokenAnchor)
+                    + FormatCreatorTax(entry.TokenDex, entry.CreatorTaxPercent, language)
                     + " · " + text.Get(language, autoCreateEnabled ? "AutoCreate" : "AutoCreateOff");
+            if (network != null && launchpad != null)
+            {
+                mode += " | " + text.Get(language,
+                    entry.EnableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled");
+            }
             return "@" + entry.XAccount.Username + "\n   " + mode;
         }).ToList();
 
@@ -202,13 +225,22 @@ public sealed class WatchlistService
         return username.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
     }
 
-    private string FormatMode(string? chain, string? dex, string? anchor, string language)
+    private string FormatMode(string? chain, string? dex, string? anchor, int creatorTaxPercent, string language)
     {
         LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
         LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == dex);
         return network == null || launchpad == null
             ? text.Get(language, "AlertsOnly")
             : network.DisplayName + " · " + launchpad.DisplayName
-                + (anchor == null ? string.Empty : " · " + anchor);
+                + (anchor == null ? string.Empty : " · " + anchor)
+                + FormatCreatorTax(dex, creatorTaxPercent, language);
+    }
+
+    private string FormatCreatorTax(string? dex, int creatorTaxPercent, string language)
+    {
+        return dex == "fourmeme"
+            ? " · " + text.Get(language, "CreatorTax") + ": "
+                + (creatorTaxPercent == 0 ? text.Get(language, "NoCreatorTax") : creatorTaxPercent + "%")
+            : string.Empty;
     }
 }

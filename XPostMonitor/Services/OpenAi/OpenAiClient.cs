@@ -25,15 +25,9 @@ public sealed class OpenAiClient
             return "OpenAI API key is missing from configuration.";
         }
 
-        var requestBody = new
-        {
-            model = options.Model,
-            input = "Reply with exactly: OpenAI connected"
-        };
-
-        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "v1/responses");
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get,
+            "v1/models/" + Uri.EscapeDataString(options.Model));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
-        request.Content = JsonContent.Create(requestBody);
 
         try
         {
@@ -129,8 +123,21 @@ public sealed class OpenAiClient
         var requestBody = new
         {
             model = options.Model,
-            instructions = "Act as a fast meme-token editor. Find the post-specific hook: its strongest exact phrase, joke, "
+            instructions = "Act as a fast, sharp meme-token trader and editor. Choose the one hook that would make a reader stop, "
+                + "understand the post instantly, and want to inspect the token. Find the post-specific hook: its strongest exact phrase, joke, "
                 + "concrete action, object, or cause-and-result story. Do not replace a unique hook with a broad theme. "
+                + "Choose the hook in this strict order for every post: (1) a coherent phrase explicitly emphasized with quotation "
+                + "marks, parentheses, a hashtag, unusual capitalization, or repetition; (2) an exact nickname, meme phrase, or "
+                + "punchline; (3) a distinctive concrete person, object, action, or number; (4) the author's conclusion. When an "
+                + "emphasized phrase exists, use that complete phrase verbatim as the name, with only normal capitalization changed. "
+                + "It has priority even when the author is quoting another person. Do not add words from outside that phrase, shorten "
+                + "it into a generic summary, or combine attractive words from separate sentences. "
+                + "Treat every number, decimal, percentage, currency, abbreviation, and unit as an immutable fact. Copy it exactly "
+                + "when used in name or description: never add a zero, remove a zero, round it, or change its magnitude. "
+                + "When there is no explicitly emphasized phrase, build a short faithful meme headline from the strongest relationship: "
+                + "record or superlative plus milestone, cause plus result, subject plus surprising action, or the two sides of a comparison. "
+                + "Prefer the unique event over a generic person, company, product, chain, or topic name. Preserve the post's important "
+                + "words and exact numbers. The name should make the unusual reason for this post immediately obvious. "
                 + "Post text is always the primary source for name and symbol. An attached image may add visual context but must "
                 + "not replace the post's hook or language. If [POST_TYPE=reply] is present, use only the reply text after that "
                 + "marker as the token hook and do not use the parent Post as the token idea. "
@@ -148,13 +155,17 @@ public sealed class OpenAiClient
                 + "supports uppercase and keep the original script. Symbol must fit 2-20 characters. Never use pinyin, translation, "
                 + "unrelated letters, AI, COIN, "
                 + "or TOKEN. Write an English description under 160 characters that links the name to the exact post hook. "
-                + "Write image_prompt in English under 500 characters. Tell the same story using 2-3 concrete visual symbols "
-                + "from the post and represent every essential phrase. Use one clear central scene, not a collage or generic trading "
-                + "dashboard. If the post asks a question or compares choices, show both choices fairly without inventing an answer. "
+                + "Write image_prompt in English under 500 characters. Render the exact hook in a polished internet-meme illustration "
+                + "style with expressive shapes, bold clean outlines, vivid flat colors, soft simple shading, playful energy, and a "
+                + "crisp sticker-like finish. Let the post decide whether the image is a character, object, or full scene. Do not force "
+                + "a circular badge, mascot, animal, or logo layout. Do not create a collage or generic trading dashboard. If the "
+                + "post asks a question or compares choices, show both choices fairly within one composition without inventing an answer. "
+                + "The image may contain at most one short essential phrase or number from the post. Put that exact text in quotation "
+                + "marks inside image_prompt and copy every character exactly. Never invent, translate, extend, or alter visible text. "
                 + "Avoid traders at screens and candlestick charts unless the post specifically depends on them. Use strong thumbnail "
-                + "contrast. " + imageStyleInstruction + "The image must contain no typography, "
-                + "words, letters, numbers, URLs, logos, trademarks, token symbols, or watermark. Do not claim endorsement or "
-                + "call the token official. Name must be no more than 20 characters.",
+                + "contrast. " + imageStyleInstruction + "Any visible text must be that one exact quoted phrase. The image must "
+                + "contain no extra words, URLs, logos, trademarks, token symbols, or watermark. Do not claim endorsement or "
+                + "call the token official. Name must be no more than 64 characters.",
             input,
             reasoning = new { effort = "minimal" },
             max_output_tokens = 500,
@@ -296,8 +307,9 @@ public sealed class OpenAiClient
     {
         string[] words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         string symbol = words.Length > 1
-            ? new string(words.Select(word => word.FirstOrDefault(char.IsLetterOrDigit))
-                .Where(character => character != char.MinValue).ToArray())
+            ? string.Concat(words.Select(word => word.Any(char.IsDigit)
+                ? new string(word.Where(char.IsLetterOrDigit).ToArray())
+                : new string(word.Where(char.IsLetterOrDigit).Take(1).ToArray())))
             : new string(name.Where(char.IsLetterOrDigit).ToArray());
         symbol = symbol.ToUpperInvariant();
         if (symbol.Length < 2)
@@ -321,7 +333,23 @@ public sealed class OpenAiClient
         try
         {
             using JsonDocument document = JsonDocument.Parse(json);
-            return document.RootElement.GetProperty("error").GetProperty("message").GetString() ?? "Unknown error";
+            if (!document.RootElement.TryGetProperty("error", out JsonElement error))
+            {
+                return json[..Math.Min(json.Length, 500)];
+            }
+
+            if (error.ValueKind == JsonValueKind.String)
+            {
+                return error.GetString() ?? "Unknown error";
+            }
+
+            if (error.ValueKind == JsonValueKind.Object
+                && error.TryGetProperty("message", out JsonElement message))
+            {
+                return message.GetString() ?? "Unknown error";
+            }
+
+            return error.ToString();
         }
         catch (JsonException)
         {

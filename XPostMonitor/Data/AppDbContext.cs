@@ -16,6 +16,9 @@ public sealed class AppDbContext : DbContext
     public DbSet<XSubscription> XSubscriptions { get; set; } = null!;
     public DbSet<UserTradingSettings> UserTradingSettings { get; set; } = null!;
     public DbSet<UserChainTradingSettings> UserChainTradingSettings { get; set; } = null!;
+    public DbSet<TakeProfitSetting> TakeProfitSettings { get; set; } = null!;
+    public DbSet<AutoTrade> AutoTrades { get; set; } = null!;
+    public DbSet<AutoTradeOrder> AutoTradeOrders { get; set; } = null!;
 
     // Khai báo khóa chính, độ dài cột và quan hệ giữa các bảng.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -46,6 +49,8 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.TokenChain).HasMaxLength(20);
             entity.Property(x => x.TokenDex).HasMaxLength(20);
             entity.Property(x => x.TokenAnchor).HasMaxLength(20);
+            entity.Property(x => x.CreatorTaxPercent).HasDefaultValue(0);
+            entity.Property(x => x.EnableAutoTrading).HasDefaultValue(false);
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.Watchlist).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.XAccount).WithMany(x => x.Watchers).HasForeignKey(x => x.XUserId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -74,6 +79,46 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.BuyAmount).HasColumnType("decimal(18,8)");
             entity.Property(x => x.SlippagePercent).HasColumnType("decimal(5,2)");
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.ChainTradingSettings).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TakeProfitSetting>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProfitPercent).HasColumnType("decimal(10,2)");
+            entity.Property(x => x.SellPercent).HasColumnType("decimal(5,2)");
+            entity.HasIndex(x => new { x.ChatId, x.ProfitPercent }).IsUnique();
+            entity.HasOne(x => x.TelegramUser).WithMany(x => x.TakeProfitSettings).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AutoTrade>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PostId).HasMaxLength(20);
+            entity.Property(x => x.Chain).HasMaxLength(20);
+            entity.Property(x => x.TokenAddress).HasMaxLength(64);
+            entity.Property(x => x.TokenName).HasMaxLength(100);
+            entity.Property(x => x.TokenSymbol).HasMaxLength(50);
+            entity.Property(x => x.WalletAddress).HasMaxLength(64);
+            entity.Property(x => x.QuoteTokenAddress).HasMaxLength(64);
+            entity.Property(x => x.EntryPrice).HasColumnType("decimal(38,30)");
+            entity.Property(x => x.Status).HasMaxLength(20);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(500);
+            entity.HasIndex(x => x.Status);
+            entity.HasOne(x => x.TelegramUser).WithMany(x => x.AutoTrades).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AutoTradeOrder>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.GmgnOrderId).HasMaxLength(64);
+            entity.Property(x => x.ProfitPercent).HasColumnType("decimal(10,2)");
+            entity.Property(x => x.SellPercent).HasColumnType("decimal(5,2)");
+            entity.Property(x => x.TargetPrice).HasColumnType("decimal(38,30)");
+            entity.Property(x => x.Status).HasMaxLength(20);
+            entity.Property(x => x.TransactionHash).HasMaxLength(100);
+            entity.Property(x => x.RealizedProfitUsd).HasColumnType("decimal(18,8)");
+            entity.HasIndex(x => x.GmgnOrderId).IsUnique();
+            entity.HasOne(x => x.AutoTrade).WithMany(x => x.Orders).HasForeignKey(x => x.AutoTradeId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

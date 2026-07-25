@@ -18,8 +18,8 @@
   "AutoCreate": "自动创建", "AutoCreateOff": "自动创建已关闭", "ChooseDestination": "请选择 @{0} 的代币创建位置：",
   "AddCancelled": "已取消添加账号。", "SelectionExpired": "该选择已失效，请重新使用 /add。",
   "UnsupportedNetwork": "不支持该网络，请重新使用 /add。", "UnsupportedSelection": "不支持该选择，请重新使用 /add。",
-  "ChooseLaunchpad": "请选择 {0} 上的 Launchpad：", "ChooseLongAnchor": "请选择 Long 的股票锚点：", "PleaseConfirm": "请确认：", "Account": "账号",
-  "Network": "网络", "Launchpad": "Launchpad", "StockAnchor": "股票锚点", "SettingsTitle": "⚙️ 代币创建设置",
+  "ChooseLaunchpad": "请选择 {0} 上的 Launchpad：", "ChooseLongAnchor": "请选择 Long 的股票锚点：", "ChooseCreatorTax": "选择代币毕业后的创作者税率：", "PleaseConfirm": "请确认：", "Account": "账号",
+  "Network": "网络", "Launchpad": "Launchpad", "StockAnchor": "股票锚点", "CreatorTax": "创作者税", "CreatorFee": "创作者手续费份额", "NoCreatorTax": "不收取创作者税", "SettingsTitle": "⚙️ 代币创建设置",
   "Configured": "✅ 已配置", "NotConfigured": "❌ 未配置", "Enabled": "🟢 已开启", "Disabled": "🔴 已关闭",
   "AutoCreateLabel": "自动创建", "NotSet": "未设置", "GasOnly": "仅需 Gas，无初始买入",
   "EnableDisableAuto": "开启 / 关闭自动创建",
@@ -94,4 +94,46 @@
   "DryRunBalanceEnough": "余额足够以后切换到 Live",
   "DryRunBalanceLow": "启用 Live 前需要充值",
   "RepostTokenSkipped": "转发只发送通知，不创建代币。"
+  ,"TradingSettingsTitle": "自动交易"
+  ,"TakeProfitLevels": "止盈级别"
+  ,"NoTakeProfitLevels": "尚未设置止盈级别。"
+  ,"ConnectGmgn": "创建 GMGN 连接"
+  ,"EnterApiKey": "输入 GMGN API Key"
+  ,"CheckGmgn": "检查 GMGN 连接"
+  ,"AddTakeProfit": "添加止盈级别"
+  ,"DeleteTakeProfit": "删除 +{0}% -> {1}%"
+  ,"GenerateWarning": "机器人将创建签名密钥。请把公钥和服务器 IP 添加到 GMGN API Key，然后在机器人中输入 API Key。"
+  ,"GenerateKey": "创建签名密钥"
+  ,"ServerIpMissing": "GMGN 配置中缺少 PublicServerIp。"
+  ,"ConnectionCreated": "GMGN 签名密钥已创建。\n\n公钥：\n<pre>{0}</pre>\n可信 IP：<code>{1}</code>\n\n请把这两个值添加到 GMGN，然后输入 API Key。"
+  ,"GenerateFailed": "无法创建 GMGN 签名密钥：{0}"
+  ,"SendApiKey": "请发送 GMGN API Key，保存后该消息会被删除。"
+  ,"InvalidApiKey": "GMGN API Key 无效。"
+  ,"GenerateFirst": "请先创建 GMGN 签名密钥。"
+  ,"ApiKeySaved": "GMGN API Key 已加密保存。"
+  ,"ConnectFirst": "请先连接 GMGN。"
+  ,"GmgnConnected": "GMGN 已连接。钱包链：{0}"
+  ,"GmgnFailed": "GMGN 连接失败：{0}"
+  ,"SendTakeProfit": "请输入一个或多个止盈级别，每行一个。例如：\n120 40\n200 30\n300 30"
+  ,"InvalidTakeProfit": "每个止盈级别需要两个数字：盈利百分比和卖出百分比。例如：\n120 40\n200 30\n300 30"
+  ,"DuplicateTakeProfit": "该盈利比例的止盈级别已存在。"
+  ,"TakeProfitLimit": "最多支持 4 个止盈级别。"
+  ,"TakeProfitTotalTooHigh": "所有止盈级别的卖出比例总和不能超过 100%。"
+  ,"TakeProfitSaved": "止盈级别已保存。"
+  ,"TakeProfitDeleted": "止盈级别已删除。"
+  ,"AutoTrading": "自动交易"
+  ,"ChooseAutoTrading": "为 @{0} 开启自动交易？"
+  ,"EnableAutoTrading": "开启自动交易"
+  ,"DisableAutoTrading": "关闭自动交易"
+  ,"AutoTradingEnabled": "自动交易已开启"
+  ,"AutoTradingDisabled": "自动交易已关闭"
+  ,"AutoTradingUnsupported": "GMGN 目前不支持该链的自动交易，但仍可启用代币创建。"
+  ,"AutoTradingStarted": "已为 {0} 创建 GMGN 止盈订单：\n\n{1}"
+  ,"AutoTradingFailed": "代币已创建，但自动交易启动失败：{0}"
+  ,"TakeProfitFilled": "{0} 止盈完成。\n目标：+{1}%\n卖出：初始代币的 {2}%\n已实现 PnL：${3}\n交易：{4}"
+  ,"TakeProfitFailed": "{0} 在 +{1}% 的止盈失败。"
+  ,"AutoTradingCompleted": "{0} 自动交易完成。\n已卖出：初始代币的 {1}%\n已实现 PnL：${2}"
+  ,"GmgnAndAutoTrading": "GMGN API \u4e0e\u81ea\u52a8\u4ea4\u6613"
+  ,"DefaultBuyAmounts": "\u9ed8\u8ba4\u4e70\u5165\u91d1\u989d"
+  ,"ChooseBuyAmountNetwork": "\u9009\u62e9\u7f51\u7edc\u5e76\u8bbe\u7f6e\u9ed8\u8ba4\u521d\u59cb\u4e70\u5165\u91d1\u989d\uff1a"
 }

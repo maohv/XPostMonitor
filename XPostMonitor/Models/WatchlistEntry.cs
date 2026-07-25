@@ -7,6 +7,8 @@ public sealed class WatchlistEntry
     public string? TokenChain { get; set; }
     public string? TokenDex { get; set; }
     public string? TokenAnchor { get; set; }
+    public int CreatorTaxPercent { get; set; }
+    public bool EnableAutoTrading { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 
     public TelegramUser TelegramUser { get; set; } = null!;
