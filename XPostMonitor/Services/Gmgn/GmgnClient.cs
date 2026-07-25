@@ -1,11 +1,13 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Numerics;
+using System.Text;
 using System.Text.Json;
 using XPostMonitor.Configuration;
 
 namespace XPostMonitor.Services.Gmgn;
 
-// Chạy gmgn-cli để kiểm tra kết nối, tìm ví đã liên kết và tạo token.
+// Chạy gmgn-cli để đọc dữ liệu thị trường và chuẩn bị cho chức năng trading sau này.
 public sealed class GmgnClient
 {
     private readonly GmgnOptions options;
@@ -99,7 +101,7 @@ public sealed class GmgnClient
         await ValidateCredentialsAsync(apiKey, privateKey, FindWalletForConnectionCheck(wallets), cancellationToken);
     }
 
-    // Tìm đúng ví đã được liên kết với API key cho network sắp tạo token.
+    // Tìm ví đã được liên kết với API key trên một network.
     public async Task<string> GetWalletAddressAsync(string apiKey, string chain, CancellationToken cancellationToken)
     {
         List<GmgnWallet> wallets = await GetWalletsAsync(apiKey, cancellationToken);
@@ -110,30 +112,237 @@ public sealed class GmgnClient
             ?? throw new InvalidOperationException("No " + chain + " wallet is linked to this GMGN API key.");
     }
 
-    // Gửi một lệnh cooking create. --yes chỉ hoạt động khi user đã tự bật Auto Create.
-    public async Task<GmgnTokenResult> CreateTokenAsync(GmgnCredentials credentials, GmgnTokenRequest request,
+    // Đợi GMGN ghi nhận giao dịch mua ban đầu và pool của token vừa tạo.
+    public async Task<GmgnTokenPosition> GetTokenPositionAsync(GmgnCredentials credentials, string chain,
+        string walletAddress, string tokenAddress, CancellationToken cancellationToken)
+    {
+        string linkedWallet = await GetWalletAddressAsync(credentials.ApiKey, chain, cancellationToken);
+        if (!string.Equals(linkedWallet, walletAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The GMGN wallet does not match the token launch wallet.");
+        }
+
+        for (int attempt = 1; attempt <= 6; attempt++)
+        {
+            string activityJson = await RunAsync(
+                ["portfolio", "activity", "--chain", chain, "--wallet", walletAddress,
+                 "--token", tokenAddress, "--type", "buy", "--limit", "20", "--raw"],
+                credentials.ApiKey, null, false, cancellationToken);
+            string poolJson = await RunAsync(
+                ["token", "pool", "--chain", chain, "--address", tokenAddress, "--raw"],
+                credentials.ApiKey, null, false, cancellationToken);
+
+            decimal entryPrice = ReadLatestBuyPrice(activityJson, tokenAddress);
+            string quoteToken = ReadQuoteToken(poolJson);
+            if (entryPrice > 0 && !string.IsNullOrWhiteSpace(quoteToken))
+            {
+                return new GmgnTokenPosition(linkedWallet, quoteToken, entryPrice);
+            }
+
+            if (attempt < 6)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+        }
+
+        throw new InvalidOperationException("GMGN has not indexed the initial token purchase yet.");
+    }
+
+    public async Task<string> CreateTakeProfitAsync(GmgnCredentials credentials, string chain,
+        string walletAddress, string tokenAddress, string quoteTokenAddress, decimal targetPrice,
+        BigInteger amountIn, decimal slippagePercent, decimal? gasPriceGwei,
         CancellationToken cancellationToken)
     {
-        string walletAddress = await GetWalletAddressAsync(credentials.ApiKey, request.Chain, cancellationToken);
         List<string> arguments =
         [
-            "cooking", "create",
-            "--chain", request.Chain,
-            "--dex", request.Dex,
+            "order", "strategy", "create",
+            "--chain", chain,
             "--from", walletAddress,
-            "--name", request.Name,
-            "--symbol", request.Symbol,
-            "--buy-amt", request.BuyAmount.ToString(CultureInfo.InvariantCulture),
-            "--image-url", request.ImageUrl,
-            "--description", request.Description,
-            "--twitter", request.PostUrl,
-            "--slippage", request.SlippagePercent.ToString(CultureInfo.InvariantCulture),
-            "--yes",
-            "--raw"
+            "--base-token", tokenAddress,
+            "--quote-token", quoteTokenAddress,
+            "--order-type", "limit_order",
+            "--sub-order-type", "take_profit",
+            "--check-price", targetPrice.ToString("G29", CultureInfo.InvariantCulture),
+            "--amount-in", amountIn.ToString(CultureInfo.InvariantCulture),
+            "--slippage", slippagePercent.ToString(CultureInfo.InvariantCulture),
+            "--yes", "--raw"
         ];
+        if (gasPriceGwei.HasValue)
+        {
+            arguments.Add("--gas-price");
+            arguments.Add(gasPriceGwei.Value.ToString("G29", CultureInfo.InvariantCulture));
+        }
 
-        string output = await RunAsync(arguments, credentials.ApiKey, credentials.PrivateKey, true, cancellationToken);
-        return ReadTokenResult(output);
+        string output = await RunAsync(arguments, credentials.ApiKey, credentials.PrivateKey, true,
+            cancellationToken);
+        using JsonDocument document = JsonDocument.Parse(output);
+        return ReadString(document.RootElement, "order_id", string.Empty) is { Length: > 0 } orderId
+            ? orderId
+            : throw new JsonException("GMGN did not return a strategy order ID.");
+    }
+
+    public async Task<decimal> GetAverageGasPriceGweiAsync(GmgnCredentials credentials, string chain,
+        CancellationToken cancellationToken)
+    {
+        string output = await RunAsync(["gas-price", "--chain", chain, "--raw"], credentials.ApiKey,
+            null, false, cancellationToken);
+        using JsonDocument document = JsonDocument.Parse(output);
+        decimal gasPriceWei = ReadDecimal(document.RootElement, "average");
+        if (gasPriceWei <= 0)
+        {
+            gasPriceWei = ReadDecimal(document.RootElement, "auto");
+        }
+        return gasPriceWei > 0
+            ? gasPriceWei / 1_000_000_000m
+            : throw new JsonException("GMGN did not return a BSC gas price.");
+    }
+
+    public async Task<List<GmgnStrategyOrder>> GetTakeProfitOrdersAsync(GmgnCredentials credentials,
+        string chain, string walletAddress, string tokenAddress, CancellationToken cancellationToken)
+    {
+        List<GmgnStrategyOrder> result = [];
+        foreach (string type in new[] { "open", "history" })
+        {
+            string output = await RunAsync(
+                ["order", "strategy", "list", "--chain", chain, "--type", type,
+                 "--from", walletAddress, "--group-tag", "LimitOrder", "--base-token", tokenAddress,
+                 "--limit", "50", "--raw"], credentials.ApiKey, credentials.PrivateKey, false,
+                cancellationToken);
+            using JsonDocument document = JsonDocument.Parse(output);
+            if (!document.RootElement.TryGetProperty("list", out JsonElement orders)
+                || orders.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (JsonElement order in orders.EnumerateArray())
+            {
+                JsonElement statistic = order.TryGetProperty("order_statistic", out JsonElement value)
+                    ? value : default;
+                int successfulSells = ReadInt32(statistic, "success_sell_num");
+                string transactionHash = ReadString(order, "close_sign_hash", string.Empty);
+                string status = ReadString(order, "status", type == "open" ? "open" : "closed");
+                bool filled = status == "closed" && (successfulSells > 0 || transactionHash.Length > 0);
+                result.Add(new GmgnStrategyOrder(
+                    ReadString(order, "order_id", string.Empty),
+                    status == "closed" ? filled ? "filled" : "failed" : "open",
+                    transactionHash,
+                    ReadDecimal(statistic, "usdt_profit")));
+            }
+        }
+
+        return result.Where(item => item.OrderId.Length > 0)
+            .GroupBy(item => item.OrderId).Select(group => group.Last()).ToList();
+    }
+
+    public async Task<string> GetQuoteTokenAsync(GmgnCredentials credentials, string chain,
+        string tokenAddress, CancellationToken cancellationToken)
+    {
+        for (int attempt = 1; attempt <= 15; attempt++)
+        {
+            string output = await RunAsync(
+                ["token", "pool", "--chain", chain, "--address", tokenAddress, "--raw"],
+                credentials.ApiKey, null, false, cancellationToken);
+            string quoteToken = ReadQuoteToken(output);
+            if (!string.IsNullOrWhiteSpace(quoteToken))
+            {
+                return quoteToken;
+            }
+            if (attempt < 15)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            }
+        }
+
+        throw new InvalidOperationException("GMGN has not indexed the token pool yet.");
+    }
+
+    public async Task<string> SellAllAsync(GmgnCredentials credentials, string chain,
+        string walletAddress, string tokenAddress, string quoteTokenAddress, decimal slippagePercent,
+        CancellationToken cancellationToken)
+    {
+        List<string> arguments =
+        [
+            "swap",
+            "--chain", chain,
+            "--from", walletAddress,
+            "--input-token", tokenAddress,
+            "--output-token", quoteTokenAddress,
+            "--percent", "100",
+            "--slippage", slippagePercent.ToString("G29", CultureInfo.InvariantCulture),
+            "--yes", "--raw"
+        ];
+        if (chain == "bsc")
+        {
+            decimal gasPrice = await GetAverageGasPriceGweiAsync(credentials, chain, cancellationToken);
+            arguments.Add("--gas-price");
+            arguments.Add(gasPrice.ToString("G29", CultureInfo.InvariantCulture));
+        }
+
+        string output = await RunAsync(arguments, credentials.ApiKey, credentials.PrivateKey, true,
+            cancellationToken);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement result = document.RootElement.TryGetProperty("data", out JsonElement data)
+            ? data : document.RootElement;
+        string orderId = ReadString(result, "order_id", string.Empty);
+        string transactionHash = ReadString(result, "hash", string.Empty);
+        string status = ReadString(result, "status", string.Empty);
+        if (status == "confirmed")
+        {
+            return transactionHash.Length > 0 ? transactionHash : orderId;
+        }
+        if (status is "failed" or "expired")
+        {
+            throw new InvalidOperationException("GMGN sell order " + status + ".");
+        }
+        if (orderId.Length == 0)
+        {
+            throw new JsonException("GMGN did not return a sell order ID.");
+        }
+
+        return await WaitForSellConfirmationAsync(credentials, chain, orderId, transactionHash,
+            cancellationToken);
+    }
+
+    private async Task<string> WaitForSellConfirmationAsync(GmgnCredentials credentials, string chain,
+        string orderId, string transactionHash, CancellationToken cancellationToken)
+    {
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            if (attempt > 1)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+
+            string output = await RunAsync(
+                ["order", "get", "--chain", chain, "--order-id", orderId, "--raw"],
+                credentials.ApiKey, credentials.PrivateKey, false, cancellationToken);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement result = document.RootElement.TryGetProperty("data", out JsonElement data)
+                ? data : document.RootElement;
+            string status = ReadString(result, "status", string.Empty);
+            string confirmedHash = ReadString(result, "hash", transactionHash);
+            if (status == "confirmed")
+            {
+                return confirmedHash.Length > 0 ? confirmedHash : orderId;
+            }
+            if (status is "failed" or "expired")
+            {
+                string error = ReadString(result, "error_status", "Unknown GMGN error");
+                throw new InvalidOperationException("GMGN sell order " + status + ": " + error);
+            }
+        }
+
+        throw new TimeoutException("GMGN sell order was not confirmed after 10 seconds. Order: " + orderId);
+    }
+
+    public async Task CancelTakeProfitAsync(GmgnCredentials credentials, string chain,
+        string walletAddress, string orderId, CancellationToken cancellationToken)
+    {
+        await RunAsync(
+            ["order", "strategy", "cancel", "--chain", chain, "--from", walletAddress,
+             "--order-id", orderId, "--order-type", "limit_order", "--yes", "--raw"],
+            credentials.ApiKey, credentials.PrivateKey, true, cancellationToken);
     }
 
     private async Task<List<GmgnWallet>> GetWalletsAsync(string apiKey, CancellationToken cancellationToken)
@@ -212,6 +421,8 @@ public sealed class GmgnClient
             FileName = Environment.ExpandEnvironmentVariables(options.NodePath),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -280,50 +491,92 @@ public sealed class GmgnClient
             : "GMGN connected successfully.\nChain: BSC";
     }
 
-    private static GmgnTokenResult ReadTokenResult(string json)
-    {
-        using JsonDocument document = JsonDocument.Parse(json);
-        JsonElement root = document.RootElement;
-        if (root.TryGetProperty("code", out JsonElement code) && code.GetInt32() != 0)
-        {
-            throw new InvalidOperationException(ReadString(root, "message", "GMGN token creation failed."));
-        }
-
-        JsonElement data = root.TryGetProperty("data", out JsonElement value) ? value : root;
-        string status = ReadString(data, "status", "unknown");
-        string error = ReadString(data, "error_status", string.Empty);
-        if (status == "failed")
-        {
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "GMGN token creation failed." : error);
-        }
-
-        return new GmgnTokenResult(status,
-            ReadString(data, "hash", string.Empty),
-            ReadString(data, "order_id", string.Empty));
-    }
-
     private static string ReadString(JsonElement element, string propertyName, string fallback)
     {
         return element.TryGetProperty(propertyName, out JsonElement value)
             ? value.GetString() ?? fallback : fallback;
     }
 
+    private static decimal ReadLatestBuyPrice(string json, string tokenAddress)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("activities", out JsonElement activities)
+            || activities.ValueKind != JsonValueKind.Array)
+        {
+            return 0;
+        }
+
+        return activities.EnumerateArray()
+            .Where(item => ReadString(item, "event_type",
+                    ReadString(item, "type", string.Empty)) == "buy"
+                && (!item.TryGetProperty("token", out JsonElement token)
+                    || string.Equals(ReadString(token, "address", tokenAddress), tokenAddress,
+                        StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(item => ReadInt64(item, "timestamp"))
+            .Select(ReadActivityUsdPrice)
+            .FirstOrDefault(price => price > 0);
+    }
+
+    private static decimal ReadActivityUsdPrice(JsonElement activity)
+    {
+        decimal priceUsd = ReadDecimal(activity, "price_usd");
+        if (priceUsd > 0)
+        {
+            return priceUsd;
+        }
+
+        decimal tokenAmount = ReadDecimal(activity, "token_amount");
+        decimal costUsd = ReadDecimal(activity, "cost_usd");
+        return tokenAmount > 0 ? costUsd / tokenAmount : 0;
+    }
+
+    private static string ReadQuoteToken(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        JsonElement pool = root.TryGetProperty("pool", out JsonElement value) ? value : root;
+        return ReadString(pool, "quote_address", string.Empty);
+    }
+
+    private static decimal ReadDecimal(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out JsonElement value))
+        {
+            return 0;
+        }
+
+        return value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out decimal number)
+            ? number
+            : decimal.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                out decimal parsed) ? parsed : 0;
+    }
+
+    private static long ReadInt64(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out JsonElement value) && value.TryGetInt64(out long result)
+            ? result : 0;
+    }
+
+    private static int ReadInt32(JsonElement element, string propertyName)
+    {
+        return element.ValueKind == JsonValueKind.Object && element.TryGetProperty(propertyName, out JsonElement value)
+            && value.TryGetInt32(out int result) ? result : 0;
+    }
+
     private static string Shorten(string text)
     {
         string value = string.IsNullOrWhiteSpace(text) ? "Unknown error" : text.Trim();
-        return value.Length <= 500 ? value : value[..500];
+        return value.Length <= 2000 ? value : value[..2000];
     }
 
     private sealed record GmgnWallet(string Chain, string Address);
 }
 
-public sealed record GmgnCredentials(string ApiKey, string PrivateKey);
-
 public sealed record GmgnConnectionResult(bool Success, string Message);
 
 public sealed record GmgnSigningKeyPair(string PublicKey, string PrivateKey);
 
-public sealed record GmgnTokenRequest(string Chain, string Dex, string Name, string Symbol,
-    string Description, string ImageUrl, string PostUrl, decimal BuyAmount, decimal SlippagePercent);
+public sealed record GmgnTokenPosition(string WalletAddress, string QuoteTokenAddress, decimal EntryPrice);
 
-public sealed record GmgnTokenResult(string Status, string TransactionHash, string OrderId);
+public sealed record GmgnStrategyOrder(string OrderId, string Status, string TransactionHash,
+    decimal RealizedProfitUsd);

@@ -4,7 +4,7 @@
   "PrivateOnly": "机器人目前仅支持私聊。", "AdminOnly": "只有频道管理员可以使用此命令。",
   "PersonalClosed": "个人机器人仅向 Premium 用户开放。", "UnknownCommand": "未知命令，请使用 /help。",
   "AdminHelp": "频道管理命令：\n/channeladd username - 添加 X 账号到频道\n/channelremove username - 从频道移除 X 账号\n/channellist - 查看频道监控列表\n\nPremium 管理：\n/premiumadd username - 开通 Premium\n/premiumremove username - 取消 Premium\n/premiumlist - 查看 Premium 用户\n\n/gmgnstatus - 检查 GMGN\n/aistatus - 检查 OpenAI\n/fluxstatus - 检查 FLUX\n/tokenpreview 内容 - 预览代币\n/language - 切换语言",
-  "PersonalHelp": "个人命令：\n发送 X 帖子链接 - 手动创建代币\n/add username - 添加或更新 X 账号\n/remove username - 移除 X 账号\n/list - 查看监控列表\n/settings - 配置 GMGN 和自动创建\n/language - 切换语言",
+  "PersonalHelp": "个人命令：\n发送 X 帖子链接 - 手动创建代币\n/add username - 添加或更新 X 账号\n/remove username - 移除 X 账号\n/list - 查看监控列表\n/settings - 配置钱包、买入金额和自动创建\n/language - 切换语言",
   "PremiumNone": "暂无 Premium 用户。", "PremiumList": "Premium 用户：\n{0}",
   "PremiumAddUsage": "用法：/premiumadd username", "PremiumRemoveUsage": "用法：/premiumremove username",
   "UserNotFound": "未找到用户，请先让对方向机器人发送 /start。", "PremiumEnabled": "已为 @{0} 开通 Premium。",
@@ -18,29 +18,23 @@
   "AutoCreate": "自动创建", "AutoCreateOff": "自动创建已关闭", "ChooseDestination": "请选择 @{0} 的代币创建位置：",
   "AddCancelled": "已取消添加账号。", "SelectionExpired": "该选择已失效，请重新使用 /add。",
   "UnsupportedNetwork": "不支持该网络，请重新使用 /add。", "UnsupportedSelection": "不支持该选择，请重新使用 /add。",
-  "ChooseLaunchpad": "请选择 {0} 上的 Launchpad：", "PleaseConfirm": "请确认：", "Account": "账号",
-  "Network": "网络", "Launchpad": "Launchpad", "SettingsTitle": "⚙️ 交易设置",
+  "ChooseLaunchpad": "请选择 {0} 上的 Launchpad：", "ChooseLongAnchor": "请选择 Long 的股票锚点：", "ChooseCreatorTax": "选择代币毕业后的创作者税率：", "PleaseConfirm": "请确认：", "Account": "账号",
+  "Network": "网络", "Launchpad": "Launchpad", "StockAnchor": "股票锚点", "CreatorTax": "创作者税", "CreatorFee": "创作者手续费份额", "NoCreatorTax": "不收取创作者税", "SettingsTitle": "⚙️ 代币创建设置",
   "Configured": "✅ 已配置", "NotConfigured": "❌ 未配置", "Enabled": "🟢 已开启", "Disabled": "🔴 已关闭",
-  "GmgnApi": "GMGN API", "AutoCreateLabel": "自动创建", "NotSet": "未设置", "Slippage": "滑点",
-  "EnableDisableAuto": "开启 / 关闭自动创建", "ConnectGmgn": "连接 GMGN", "EnterApiKey": "输入 GMGN API Key",
-  "CheckGmgn": "检查 GMGN 连接", "SendApiKey": "请发送 GMGN API Key，保存后该消息会被删除。",
-  "GenerateWarning": "生成新密钥会清除已保存的 API Key 并关闭自动创建。", "GenerateKey": "生成连接密钥",
-  "SendAmount": "请输入 {0} 的买入金额，例如：0.005 {1}", "SendSlippage": "请输入滑点百分比，例如：5",
-  "ChangeAmount": "修改买入金额", "ChangeSlippage": "修改滑点", "UnsupportedNetworkShort": "不支持该网络。",
-  "NetworkSettings": "{0} 设置\n\n买入金额：{1}\n滑点：{2}%", "InvalidApiKey": "GMGN API Key 无效。",
-  "GenerateFirst": "请先连接 GMGN 并生成连接密钥。", "ApiKeySaved": "GMGN API Key 已保存，自动创建仍为关闭状态。",
-  "ServerIpMissing": "未配置服务器 IPv4，请联系管理员。", "GenerateFailed": "无法生成 GMGN 连接密钥：{0}",
-  "ConnectionCreated": "GMGN 连接密钥已生成。\n\n1. 创建新的 GMGN API Key。\n2. 开启 Reading 和 Trading。\n3. 复制此公钥：\n<pre>{0}</pre>\n\n4. 添加此 Trusted IPv4：\n<code>{1}</code>\n\n5. 选择交易钱包并保存。\n6. 返回机器人并点击输入 GMGN API Key。\n\n签名私钥会加密保存在机器人内部。",
-  "InvalidAmount": "买入金额必须大于 0，例如：0.005", "AmountSaved": "买入金额已保存。",
-  "InvalidSlippage": "滑点必须在 0 到 100 之间，例如：5", "SlippageSaved": "滑点已保存。",
-  "AutoDisabled": "自动创建已关闭。", "ConnectFirst": "请先连接 GMGN 并输入 API Key。",
-  "AddRouteFirst": "请先添加至少一个带网络和 Launchpad 的 X 账号。", "SetChainFirst": "请先设置 {0} 的买入金额和滑点。",
-  "CannotEnableAuto": "无法开启自动创建：{0}", "AutoEnabled": "自动创建已开启，新的 X 活动可以创建真实代币。",
-  "GmgnConnected": "GMGN 连接成功。\n已绑定网络：{0}", "GmgnFailed": "GMGN 连接失败：{0}",
-  "NoLinkedWallet": "未绑定钱包。", "TokenFailed": "Post {0} 创建代币失败：{1}",
+  "AutoCreateLabel": "自动创建", "NotSet": "未设置", "GasOnly": "仅需 Gas，无初始买入",
+  "EnableDisableAuto": "开启 / 关闭自动创建",
+  "SendAmount": "请输入 {0} 的买入金额（{1}）。", "MinimumBuyAmountInfo": "最低金额：{0} {1}。",
+  "ChangeAmount": "修改买入金额", "UnsupportedNetworkShort": "不支持该网络。",
+  "NetworkSettings": "{0} 设置\n\n买入金额：{1}",
+  "NetworkSettingsGasOnly": "{0} 设置\n\n无需初始买入，请保留足够 ETH 支付 Gas。",
+  "InvalidAmount": "买入金额必须是大于 0 的数字。", "AmountSaved": "买入金额已保存。",
+  "AutoDisabled": "自动创建已关闭。",
+  "AddRouteFirst": "请先添加至少一个带网络和 Launchpad 的 X 账号。", "SetChainFirst": "请先设置 {0} 的买入金额。",
+  "AutoEnabled": "自动创建已开启，新的帖子和回复可以创建代币。",
+  "TokenFailed": "Post {0} 创建代币失败：{1}",
   "TokenSkipped": "已跳过 Post {0} 的代币：准备时间超过 10 秒。",
-  "TokenSubmitted": "代币创建请求已提交\n\n名称：{0}\n代码：{1}\n网络：{2}\nLaunchpad：{3}\n状态：{4}",
-  "Transaction": "交易", "OrderId": "订单 ID", "Followers": "关注者", "ReplyingTo": "正在回复 @{0}",
+  "TokenSubmitted": "代币创建成功\n\n名称：{0}\n代码：{1}\n网络：{2}\nLaunchpad：{3}",
+  "Transaction": "交易", "Followers": "关注者", "ReplyingTo": "正在回复 @{0}",
   "Reposted": "已转发", "QuotedPost": "引用帖子", "NewPost": "新帖子", "Unknown": "未知",
   "JustNow": "刚刚", "MinutesAgo": "{0} 分钟前", "HoursAgo": "{0} 小时前", "DaysAgo": "{0} 天前",
   "ViewOnX": "在 X 查看", "AvatarChanged": "@{0} 更换了头像。\n\nhttps://x.com/{0}", "NewAvatar": "新头像：{0}",
@@ -57,10 +51,89 @@
   "InvalidXLink": "请发送有效的 X 帖子链接，例如：https://x.com/user/status/123",
   "ManualChooseNetwork": "请选择此帖子的网络：",
   "ManualExpired": "该选择已失效，请重新发送 X 链接。",
-  "ManualSettingsMissing": "请先为该网络配置 GMGN API、买入金额和滑点。",
-  "ManualConfirmation": "确认从此帖子创建真实代币？\n\n帖子：{0}\n网络：{1}\nLaunchpad：{2}\n买入金额：{3} {4}\n滑点：{5}%\n\n此操作会使用真实资金。",
-  "CreateRealToken": "🚀 创建真实代币",
+  "MinimumBuyAmount": "{0} 的最低买入金额为 {1} {2}，请在 /settings 中修改。",
+  "CreateRealToken": "🚀 创建代币",
   "ManualQueued": "代币创建已开始，结果会发送到这里。",
   "ManualAlreadyRunning": "该帖子正在处理中。",
-  "ManualPostFailed": "无法从该帖子创建代币：{0}"
+  "ManualPostFailed": "无法从该帖子创建代币：{0}",
+  "EvmWallet": "EVM 钱包",
+  "CheckFourMeme": "检查 FourMeme",
+  "CreateEvmWallet": "创建 EVM 钱包",
+  "ShowPrivateKey": "显示私钥",
+  "EvmWalletMissing": "尚无 EVM 钱包。请创建钱包以直接使用 Launchpad。",
+  "EvmWalletReady": "EVM 钱包已就绪。\n\n地址：<code>{0}</code>\n\n原生币余额：\n{1}\n\n此钱包可用于 BSC、Base、Robinhood Chain 和 Stable。",
+  "EvmWalletCreated": "EVM 钱包已创建。\n\n地址：<code>{0}</code>\n私钥：<tg-spoiler>{1}</tg-spoiler>\n\n原生币余额：\n{2}\n\n请立即备份私钥。任何获得私钥的人都可以使用钱包资金。保存后请关闭此消息。",
+  "EvmWalletFailed": "无法创建 EVM 钱包：{0}",
+  "EvmPrivateKey": "钱包私密信息\n\n地址：<code>{0}</code>\n私钥：<tg-spoiler>{1}</tg-spoiler>\n\n请勿分享此私钥，保存后请关闭此消息。",
+  "FourMemeConnected": "FourMeme 连接成功。\n\n模式：{3}\n募集代币：{0}\nLaunch 费用：{1} BNB\n钱包余额：{2} BNB\n\n未发送任何交易。",
+  "FourMemeFailed": "FourMeme 连接失败：{0}",
+  "CheckDyorStable": "检查 DYOR Stable",
+  "DyorStableConnected": "DYOR Stable 连接成功。\n\n模式：{4}\nChain 988：{0}\nFactory：{1}\n钱包余额：{2} USDT0\nMetadata API：{3}\n\n未发送任何交易。",
+  "DyorStableFailed": "DYOR Stable 连接失败：{0}",
+  "CheckLongRobinhood": "检查 Long Robinhood",
+  "LongRobinhoodConnected": "Long 连接成功。\n\n模式：{4}\nChain 4663：{0}\nLauncher：{1}\n合约状态：{2}\n钱包余额：{3} ETH\n\n未发送任何交易。",
+  "LongRobinhoodFailed": "Long 连接失败：{0}",
+  "LaunchpadSettingsMissing": "请先创建 EVM 钱包并在 /settings 中配置所选网络。",
+  "TokenConfirmation": "确认创建代币？\n\n帖子：{0}\n网络：{1}\nLaunchpad：{2}\n初始买入：{3} {4}\n\n还会加上 Gas，此操作会使用钱包资金。",
+  "TokenTestConfirmation": "测试代币交易？\n\n帖子：{0}\n网络：{1}\nLaunchpad：{2}\n模拟初始买入：{3} {4}\n\n机器人只估算交易，不发送交易或花费资金。",
+  "TokenConfirmationNoBuy": "创建代币？\n\n帖子：{0}\n网络：{1}\nLaunchpad：{2}\n股票锚点：{3}\n\n仅需支付 Gas，此操作会使用钱包资金。",
+  "TokenTestConfirmationNoBuy": "测试代币配置？\n\n帖子：{0}\n网络：{1}\nLaunchpad：{2}\n股票锚点：{3}\n\n机器人将检查合约和代码，不发送交易。",
+  "RunTokenTest": "运行交易测试",
+  "TokenTestStarted": "交易测试已开始，不会发送交易。",
+  "TokenDryRunPassed": "交易测试成功\n\nLaunchpad：{0}\n名称：{1}\n代码：{2}\n模拟初始买入：{3} {4}\n预计 Gas：{5}\n钱包：{6}\n\n未发送交易，也未创建代币。",
+  "TokenDryRunPassedNoBuy": "代币配置测试成功\n\nLaunchpad：{0}\n名称：{1}\n代码：{2}\n股票锚点：{3}\n预计 Gas：{4}\n钱包：{5}\n\n已检查合约和代码，未发送交易。",
+  "FourMemeSettingsMissing": "请先在 /settings 中创建 EVM 钱包并设置 BSC 买入金额。",
+  "FourMemeConfirmation": "确认在 FourMeme 创建代币？\n\n帖子：{0}\n网络：{1}\nLaunchpad：{2}\n初始买入：{3} {4}\n\n还会加上 Launch 费用和 Gas，此操作会使用钱包中的资金。",
+  "DryRunMode": "DRY RUN（不发送交易）", "LiveMode": "LIVE（发送交易）",
+  "RunFourMemeTest": "运行 FourMeme 测试",
+  "FourMemeTestStarted": "FourMeme 测试已开始，不会发送交易。",
+  "FourMemeTestConfirmation": "测试完整 FourMeme 流程？\n\n帖子：{0}\n网络：{1}\nLaunchpad：{2}\n模拟初始买入：{3} {4}\n\n机器人会准备并估算交易，但不会发送交易或花费资金。",
+  "FourMemeDryRunPassed": "FourMeme 测试成功\n\n名称：{0}\n代码：{1}\n模拟初始买入：{2} BNB\n预计 Gas：{3}\n钱包：{4}\n\n未发送交易，也未创建代币。",
+  "DryRunGasSkipped": "因钱包余额不足而跳过",
+  "GasNotEstimated": "本次配置测试未估算",
+  "DryRunBalanceEnough": "余额足够以后切换到 Live",
+  "DryRunBalanceLow": "启用 Live 前需要充值",
+  "RepostTokenSkipped": "转发只发送通知，不创建代币。"
+  ,"TradingSettingsTitle": "自动交易"
+  ,"TakeProfitLevels": "止盈级别"
+  ,"NoTakeProfitLevels": "尚未设置止盈级别。"
+  ,"ConnectGmgn": "创建 GMGN 连接"
+  ,"EnterApiKey": "输入 GMGN API Key"
+  ,"CheckGmgn": "检查 GMGN 连接"
+  ,"AddTakeProfit": "添加止盈级别"
+  ,"DeleteTakeProfit": "删除 +{0}% -> {1}%"
+  ,"GenerateWarning": "机器人将创建签名密钥。请把公钥和服务器 IP 添加到 GMGN API Key，然后在机器人中输入 API Key。"
+  ,"GenerateKey": "创建签名密钥"
+  ,"ServerIpMissing": "GMGN 配置中缺少 PublicServerIp。"
+  ,"ConnectionCreated": "GMGN 签名密钥已创建。\n\n公钥：\n<pre>{0}</pre>\n可信 IP：<code>{1}</code>\n\n请把这两个值添加到 GMGN，然后输入 API Key。"
+  ,"GenerateFailed": "无法创建 GMGN 签名密钥：{0}"
+  ,"SendApiKey": "请发送 GMGN API Key，保存后该消息会被删除。"
+  ,"InvalidApiKey": "GMGN API Key 无效。"
+  ,"GenerateFirst": "请先创建 GMGN 签名密钥。"
+  ,"ApiKeySaved": "GMGN API Key 已加密保存。"
+  ,"ConnectFirst": "请先连接 GMGN。"
+  ,"GmgnConnected": "GMGN 已连接。钱包链：{0}"
+  ,"GmgnFailed": "GMGN 连接失败：{0}"
+  ,"SendTakeProfit": "请输入一个或多个止盈级别，每行一个。例如：\n120 40\n200 30\n300 30"
+  ,"InvalidTakeProfit": "每个止盈级别需要两个数字：盈利百分比和卖出百分比。例如：\n120 40\n200 30\n300 30"
+  ,"DuplicateTakeProfit": "该盈利比例的止盈级别已存在。"
+  ,"TakeProfitLimit": "最多支持 4 个止盈级别。"
+  ,"TakeProfitTotalTooHigh": "所有止盈级别的卖出比例总和不能超过 100%。"
+  ,"TakeProfitSaved": "止盈级别已保存。"
+  ,"TakeProfitDeleted": "止盈级别已删除。"
+  ,"AutoTrading": "自动交易"
+  ,"ChooseAutoTrading": "为 @{0} 开启自动交易？"
+  ,"EnableAutoTrading": "开启自动交易"
+  ,"DisableAutoTrading": "关闭自动交易"
+  ,"AutoTradingEnabled": "自动交易已开启"
+  ,"AutoTradingDisabled": "自动交易已关闭"
+  ,"AutoTradingUnsupported": "GMGN 目前不支持该链的自动交易，但仍可启用代币创建。"
+  ,"AutoTradingStarted": "已为 {0} 创建 GMGN 止盈订单：\n\n{1}"
+  ,"AutoTradingFailed": "代币已创建，但自动交易启动失败：{0}"
+  ,"TakeProfitFilled": "{0} 止盈完成。\n目标：+{1}%\n卖出：初始代币的 {2}%\n已实现 PnL：${3}\n交易：{4}"
+  ,"TakeProfitFailed": "{0} 在 +{1}% 的止盈失败。"
+  ,"AutoTradingCompleted": "{0} 自动交易完成。\n已卖出：初始代币的 {1}%\n已实现 PnL：${2}"
+  ,"GmgnAndAutoTrading": "GMGN API \u4e0e\u81ea\u52a8\u4ea4\u6613"
+  ,"DefaultBuyAmounts": "\u9ed8\u8ba4\u4e70\u5165\u91d1\u989d"
+  ,"ChooseBuyAmountNetwork": "\u9009\u62e9\u7f51\u7edc\u5e76\u8bbe\u7f6e\u9ed8\u8ba4\u521d\u59cb\u4e70\u5165\u91d1\u989d\uff1a"
 }

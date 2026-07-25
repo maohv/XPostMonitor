@@ -59,13 +59,20 @@ public sealed class XActivitySubscriptionSyncService : BackgroundService
         List<XSubscription> localSubscriptions = await db.XSubscriptions
             .Where(item => item.EventType == XApiClient.AvatarEventType)
             .ToListAsync(cancellationToken);
+        List<XActivitySubscription> remoteSubscriptions = (await xApiClient
+            .GetActivitySubscriptionsAsync(cancellationToken))
+            .Where(item => item.EventType == XApiClient.AvatarEventType)
+            .ToList();
 
         DateTime now = DateTime.UtcNow;
         foreach (XSubscription local in localSubscriptions.Where(item => !desiredUserIds.Contains(item.XUserId)))
         {
-            if (!string.IsNullOrWhiteSpace(local.RemoteSubscriptionId))
+            XActivitySubscription? remote = remoteSubscriptions.FirstOrDefault(item =>
+                (item.SubscriptionId == local.RemoteSubscriptionId || item.Filter.UserId == local.XUserId)
+                && item.Tag != null && item.Tag.StartsWith(TagPrefix, StringComparison.Ordinal));
+            if (remote != null)
             {
-                await xApiClient.DeleteActivitySubscriptionAsync(local.RemoteSubscriptionId, cancellationToken);
+                await xApiClient.DeleteActivitySubscriptionAsync(remote.SubscriptionId, cancellationToken);
             }
 
             db.XSubscriptions.Remove(local);
@@ -74,20 +81,47 @@ public sealed class XActivitySubscriptionSyncService : BackgroundService
 
         foreach (string xUserId in desiredUserIds)
         {
-            if (localSubscriptions.Any(item => item.XUserId == xUserId))
+            XSubscription? local = localSubscriptions.FirstOrDefault(item => item.XUserId == xUserId);
+            XActivitySubscription? remote = remoteSubscriptions.FirstOrDefault(item => item.Filter.UserId == xUserId);
+            if (remote != null)
             {
+                if (local == null)
+                {
+                    db.XSubscriptions.Add(new XSubscription
+                    {
+                        XUserId = xUserId,
+                        EventType = XApiClient.AvatarEventType,
+                        RemoteSubscriptionId = remote.SubscriptionId,
+                        CreatedAtUtc = now,
+                        UpdatedAtUtc = now
+                    });
+                }
+                else if (local.RemoteSubscriptionId != remote.SubscriptionId)
+                {
+                    local.RemoteSubscriptionId = remote.SubscriptionId;
+                    local.UpdatedAtUtc = now;
+                }
                 continue;
             }
 
-            XActivitySubscription remote = await xApiClient.CreateAvatarSubscriptionAsync(xUserId, TagPrefix + xUserId, cancellationToken);
-            db.XSubscriptions.Add(new XSubscription
+            remote = await xApiClient.CreateAvatarSubscriptionAsync(xUserId, TagPrefix + xUserId,
+                cancellationToken);
+            if (local == null)
             {
-                XUserId = xUserId,
-                EventType = XApiClient.AvatarEventType,
-                RemoteSubscriptionId = remote.SubscriptionId,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now
-            });
+                db.XSubscriptions.Add(new XSubscription
+                {
+                    XUserId = xUserId,
+                    EventType = XApiClient.AvatarEventType,
+                    RemoteSubscriptionId = remote.SubscriptionId,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now
+                });
+            }
+            else
+            {
+                local.RemoteSubscriptionId = remote.SubscriptionId;
+                local.UpdatedAtUtc = now;
+            }
 
             logger.LogInformation("[X] Tạo avatar subscription cho X user {XUserId} thành công.", xUserId);
         }

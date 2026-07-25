@@ -10,7 +10,7 @@
   "PersonalClosed": "The personal bot is available to Premium users only.",
   "UnknownCommand": "Unknown command. Use /help.",
   "AdminHelp": "Channel admin commands:\n/channeladd username - add an X account to the channel\n/channelremove username - remove an X account from the channel\n/channellist - show the channel watchlist\n\nPremium admin commands:\n/premiumadd username - enable Premium for a user\n/premiumremove username - disable Premium for a user\n/premiumlist - show Premium users\n\nGMGN admin commands:\n/gmgnstatus - check the GMGN connection\n\nAI admin commands:\n/aistatus - check OpenAI\n/aitest post text - create a token draft\n/aiimage prompt - create a token image\n\nFLUX admin commands:\n/fluxstatus - check FLUX\n/fluximage post text - create an image\n\n/tokenpreview post text - preview a token\n/language - change language",
-  "PersonalHelp": "Personal commands:\nSend an X Post link - create a token manually\n/add username - add or update an X account\n/remove username - remove an X account\n/list - show your watchlist\n/settings - configure GMGN and Auto Create\n/language - change language",
+  "PersonalHelp": "Personal commands:\nSend an X Post link - create a token manually\n/add username - add or update an X account\n/remove username - remove an X account\n/list - show your watchlist\n/settings - configure wallet, buy amount and Auto Create\n/language - change language",
   "PremiumNone": "No Premium users.",
   "PremiumList": "Premium users:\n{0}",
   "PremiumAddUsage": "Usage: /premiumadd username",
@@ -41,56 +41,41 @@
   "UnsupportedNetwork": "Unsupported network. Use /add again.",
   "UnsupportedSelection": "Unsupported selection. Use /add again.",
   "ChooseLaunchpad": "Choose a launchpad on {0}:",
+  "ChooseLongAnchor": "Choose the stock anchor for Long:",
+  "ChooseCreatorTax": "Choose the creator tax after graduation:",
   "PleaseConfirm": "Please confirm:",
   "Account": "Account",
   "Network": "Network",
   "Launchpad": "Launchpad",
-  "SettingsTitle": "⚙️ Trading Settings",
+  "StockAnchor": "Stock anchor",
+  "CreatorTax": "Creator tax",
+  "CreatorFee": "Creator fee share",
+  "NoCreatorTax": "No creator tax",
+  "SettingsTitle": "⚙️ Token Settings",
   "Configured": "✅ Configured",
   "NotConfigured": "❌ Not configured",
   "Enabled": "🟢 Enabled",
   "Disabled": "🔴 Disabled",
-  "GmgnApi": "GMGN API",
   "AutoCreateLabel": "Auto Create",
   "NotSet": "Not set",
-  "Slippage": "Slippage",
+  "GasOnly": "Gas only - no initial buy",
   "EnableDisableAuto": "Enable / Disable Auto Create",
-  "ConnectGmgn": "Connect GMGN",
-  "EnterApiKey": "Enter GMGN API key",
-  "CheckGmgn": "Check GMGN connection",
-  "SendApiKey": "Send your GMGN API key now. This message will be deleted after it is saved.",
-  "GenerateWarning": "Generating a new key clears any saved GMGN API key and disables Auto Create.",
-  "GenerateKey": "Generate connection key",
-  "SendAmount": "Send the buy amount for {0}. Example: 0.005 {1}",
-  "SendSlippage": "Send slippage as a percentage. Example: 5",
+  "SendAmount": "Send the buy amount for {0} ({1}).",
+  "MinimumBuyAmountInfo": "Minimum: {0} {1}.",
   "ChangeAmount": "Change buy amount",
-  "ChangeSlippage": "Change slippage",
   "UnsupportedNetworkShort": "Unsupported network.",
-  "NetworkSettings": "{0} settings\n\nBuy amount: {1}\nSlippage: {2}%",
-  "InvalidApiKey": "The GMGN API key is invalid.",
-  "GenerateFirst": "Tap Connect GMGN and generate a connection key first.",
-  "ApiKeySaved": "GMGN API key saved. Auto Create remains disabled.",
-  "ServerIpMissing": "Server IPv4 is not configured. Ask the admin to configure it first.",
-  "GenerateFailed": "Cannot generate the GMGN connection key: {0}",
-  "ConnectionCreated": "GMGN connection key created.\n\n1. Create a new GMGN API key.\n2. Enable Reading and Trading.\n3. Copy this public key:\n<pre>{0}</pre>\n\n4. Add this Trusted IPv4:\n<code>{1}</code>\n\n5. Select your trading wallets and save.\n6. Return here and tap Enter GMGN API key.\n\nThe private signing key stays encrypted inside the bot.",
-  "InvalidAmount": "Buy amount must be a number greater than 0. Example: 0.005",
+  "NetworkSettings": "{0} settings\n\nBuy amount: {1}",
+  "NetworkSettingsGasOnly": "{0} settings\n\nNo initial buy is required. Keep enough ETH for gas.",
+  "InvalidAmount": "Buy amount must be a number greater than 0.",
   "AmountSaved": "Buy amount saved. Auto Create will use this value.",
-  "InvalidSlippage": "Slippage must be between 0 and 100. Example: 5",
-  "SlippageSaved": "Slippage saved.",
   "AutoDisabled": "Auto Create disabled.",
-  "ConnectFirst": "Connect GMGN and enter your API key first.",
   "AddRouteFirst": "Add at least one X account with a network and launchpad first.",
-  "SetChainFirst": "Set buy amount and slippage for {0} first.",
-  "CannotEnableAuto": "Cannot enable Auto Create: {0}",
-  "AutoEnabled": "Auto Create enabled. New monitored X activity can now create real tokens.",
-  "GmgnConnected": "GMGN connected successfully.\nLinked networks: {0}",
-  "GmgnFailed": "GMGN connection failed: {0}",
-  "NoLinkedWallet": "No linked wallet.",
+  "SetChainFirst": "Set the buy amount for {0} first.",
+  "AutoEnabled": "Auto Create enabled. New monitored posts and replies can now create tokens.",
   "TokenFailed": "Token creation failed for Post {0}: {1}",
   "TokenSkipped": "Token skipped for Post {0}: preparation exceeded 10 seconds.",
-  "TokenSubmitted": "Token submitted\n\nName: {0}\nSymbol: {1}\nNetwork: {2}\nLaunchpad: {3}\nStatus: {4}",
+  "TokenSubmitted": "Token created\n\nName: {0}\nSymbol: {1}\nNetwork: {2}\nLaunchpad: {3}",
   "Transaction": "Transaction",
-  "OrderId": "Order ID",
   "Followers": "followers",
   "ReplyingTo": "Replying to @{0}",
   "Reposted": "Reposted",
@@ -117,10 +102,91 @@
   "InvalidXLink": "Send a valid X Post link, for example: https://x.com/user/status/123",
   "ManualChooseNetwork": "Choose the network for this Post:",
   "ManualExpired": "This selection is no longer valid. Send the X link again.",
-  "ManualSettingsMissing": "Configure GMGN API, buy amount and slippage for this network first.",
-  "ManualConfirmation": "Create a real token from this Post?\n\nPost: {0}\nNetwork: {1}\nLaunchpad: {2}\nBuy amount: {3} {4}\nSlippage: {5}%\n\nThis action uses real funds.",
-  "CreateRealToken": "🚀 Create real token",
+  "MinimumBuyAmount": "The minimum buy amount on {0} is {1} {2}. Change it in /settings.",
+  "CreateRealToken": "🚀 Create token",
   "ManualQueued": "Token creation started. The result will be sent here.",
   "ManualAlreadyRunning": "This Post is already being processed.",
-  "ManualPostFailed": "Could not create the token from this Post: {0}"
+  "ManualPostFailed": "Could not create the token from this Post: {0}",
+  "EvmWallet": "EVM wallet",
+  "CheckFourMeme": "Check FourMeme",
+  "CreateEvmWallet": "Create EVM wallet",
+  "ShowPrivateKey": "Show private key",
+  "EvmWalletMissing": "No EVM wallet yet. Create one for direct launchpad transactions.",
+  "EvmWalletReady": "EVM wallet ready.\n\nAddress: <code>{0}</code>\n\nNative balances:\n{1}\n\nThis wallet works on BSC, Base, Robinhood Chain and Stable.",
+  "EvmWalletCreated": "EVM wallet created.\n\nAddress: <code>{0}</code>\nPrivate key: <tg-spoiler>{1}</tg-spoiler>\n\nNative balances:\n{2}\n\nBack up the private key now. Anyone with it can spend this wallet's funds. Close this message after saving it.",
+  "EvmWalletFailed": "Could not create the EVM wallet: {0}",
+  "EvmPrivateKey": "Private wallet data\n\nAddress: <code>{0}</code>\nPrivate key: <tg-spoiler>{1}</tg-spoiler>\n\nNever share this key. Close this message after saving it.",
+  "FourMemeConnected": "FourMeme connected.\n\nMode: {3}\nRaised token: {0}\nLaunch fee: {1} BNB\nWallet balance: {2} BNB\n\nNo transaction was sent.",
+  "FourMemeFailed": "FourMeme connection failed: {0}",
+  "CheckDyorStable": "Check DYOR Stable",
+  "DyorStableConnected": "DYOR Stable connected.\n\nMode: {4}\nChain 988: {0}\nFactory: {1}\nWallet balance: {2} USDT0\nMetadata API: {3}\n\nNo transaction was sent.",
+  "DyorStableFailed": "DYOR Stable connection failed: {0}",
+  "CheckLongRobinhood": "Check Long Robinhood",
+  "LongRobinhoodConnected": "Long connected.\n\nMode: {4}\nChain 4663: {0}\nLauncher: {1}\nContract status: {2}\nWallet balance: {3} ETH\n\nNo transaction was sent.",
+  "LongRobinhoodFailed": "Long connection failed: {0}",
+  "LaunchpadSettingsMissing": "Create an EVM wallet and configure the selected network in /settings first.",
+  "TokenConfirmation": "Create a token?\n\nPost: {0}\nNetwork: {1}\nLaunchpad: {2}\nInitial buy: {3} {4}\n\nGas will be added. This action spends funds from your wallet.",
+  "TokenTestConfirmation": "Test the token transaction?\n\nPost: {0}\nNetwork: {1}\nLaunchpad: {2}\nSimulated initial buy: {3} {4}\n\nThe bot will estimate the transaction but will not send it or spend funds.",
+  "TokenConfirmationNoBuy": "Create a token?\n\nPost: {0}\nNetwork: {1}\nLaunchpad: {2}\nStock anchor: {3}\n\nOnly gas is required. This action spends funds from your wallet.",
+  "TokenTestConfirmationNoBuy": "Test the token setup?\n\nPost: {0}\nNetwork: {1}\nLaunchpad: {2}\nStock anchor: {3}\n\nThe bot will check the contract and ticker. No transaction will be sent.",
+  "RunTokenTest": "Run transaction test",
+  "TokenTestStarted": "Transaction dry run started. No transaction will be sent.",
+  "TokenDryRunPassed": "Transaction test passed\n\nLaunchpad: {0}\nName: {1}\nSymbol: {2}\nSimulated initial buy: {3} {4}\nEstimated gas: {5}\nWallet: {6}\n\nNo transaction was sent. No token was created.",
+  "TokenDryRunPassedNoBuy": "Token setup test passed\n\nLaunchpad: {0}\nName: {1}\nSymbol: {2}\nStock anchor: {3}\nEstimated gas: {4}\nWallet: {5}\n\nContract and ticker were checked. No transaction was sent.",
+  "FourMemeSettingsMissing": "Create an EVM wallet and set the BSC buy amount in /settings first.",
+  "FourMemeConfirmation": "Create a token on FourMeme?\n\nPost: {0}\nNetwork: {1}\nLaunchpad: {2}\nInitial buy: {3} {4}\n\nLaunch fee and gas will be added. This action spends funds from your wallet.",
+  "DryRunMode": "DRY RUN (no transaction)", "LiveMode": "LIVE (sends transaction)",
+  "RunFourMemeTest": "Run FourMeme test",
+  "FourMemeTestStarted": "FourMeme dry run started. No transaction will be sent.",
+  "FourMemeTestConfirmation": "Test the complete FourMeme flow?\n\nPost: {0}\nNetwork: {1}\nLaunchpad: {2}\nSimulated initial buy: {3} {4}\n\nThe bot will prepare and estimate the transaction but will not send it or spend funds.",
+  "FourMemeDryRunPassed": "FourMeme dry run passed\n\nName: {0}\nSymbol: {1}\nSimulated initial buy: {2} BNB\nEstimated gas: {3}\nWallet: {4}\n\nNo transaction was sent. No token was created.",
+  "DryRunGasSkipped": "skipped because wallet balance is too low",
+  "GasNotEstimated": "not estimated in this setup test",
+  "DryRunBalanceEnough": "enough for a future live transaction",
+  "DryRunBalanceLow": "needs more balance before live mode",
+  "RepostTokenSkipped": "Reposts only send notifications and do not create tokens."
+  ,"TradingSettingsTitle": "Auto Trading"
+  ,"TakeProfitLevels": "Take-profit levels"
+  ,"NoTakeProfitLevels": "No take-profit levels configured."
+  ,"ConnectGmgn": "Create GMGN connection"
+  ,"EnterApiKey": "Enter GMGN API key"
+  ,"CheckGmgn": "Check GMGN connection"
+  ,"AddTakeProfit": "Add take-profit level"
+  ,"DeleteTakeProfit": "Delete +{0}% -> {1}%"
+  ,"GenerateWarning": "The bot will create a signing key. Add the public key and server IP to your GMGN API key, then enter the API key here."
+  ,"GenerateKey": "Create signing key"
+  ,"ServerIpMissing": "PublicServerIp is missing from GMGN configuration."
+  ,"ConnectionCreated": "GMGN signing key created.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nAdd both values to GMGN, then enter your API key."
+  ,"GenerateFailed": "Could not create the GMGN signing key: {0}"
+  ,"SendApiKey": "Send your GMGN API key. This message will be deleted after it is saved."
+  ,"InvalidApiKey": "Invalid GMGN API key."
+  ,"GenerateFirst": "Create the GMGN signing key first."
+  ,"ApiKeySaved": "GMGN API key saved and encrypted."
+  ,"ConnectFirst": "Connect GMGN first."
+  ,"GmgnConnected": "GMGN connected. Wallet chains: {0}"
+  ,"GmgnFailed": "GMGN connection failed: {0}"
+  ,"SendTakeProfit": "Send one or more take-profit levels. Put each level on a new line. Example:\n120 40\n200 30\n300 30"
+  ,"InvalidTakeProfit": "Each level needs two numbers: profit percent and sell percent. Example:\n120 40\n200 30\n300 30"
+  ,"DuplicateTakeProfit": "A take-profit level with this profit percentage already exists."
+  ,"TakeProfitLimit": "A maximum of 4 take-profit levels is supported."
+  ,"TakeProfitTotalTooHigh": "Total sell percentage across all take-profit levels cannot exceed 100%."
+  ,"TakeProfitSaved": "Take-profit levels saved."
+  ,"TakeProfitDeleted": "Take-profit level deleted."
+  ,"AutoTrading": "Auto Trading"
+  ,"ChooseAutoTrading": "Enable Auto Trading for @{0}?"
+  ,"EnableAutoTrading": "Enable Auto Trading"
+  ,"DisableAutoTrading": "Disable Auto Trading"
+  ,"AutoTradingEnabled": "Auto Trading on"
+  ,"AutoTradingDisabled": "Auto Trading off"
+  ,"AutoTradingUnsupported": "GMGN does not currently support Auto Trading on this chain. Token creation can still be enabled."
+  ,"AutoTradingStarted": "GMGN take-profit orders created for {0}:\n\n{1}"
+  ,"AutoTradingFailed": "Token was created, but Auto Trading could not start: {0}"
+  ,"TakeProfitFilled": "Take profit completed for {0}.\nTarget: +{1}%\nSold: {2}% of initial tokens\nRealized PnL: ${3}\nTransaction: {4}"
+  ,"TakeProfitFailed": "Take profit failed for {0} at +{1}%."
+  ,"AutoTradingCompleted": "Auto Trading completed for {0}.\nSold: {1}% of initial tokens\nRealized PnL: ${2}"
+  ,"AutoExitSold": "Auto exit completed for {0}.\nReason: {1}\nSell transaction/order: {2}"
+  ,"AutoExitFailed": "URGENT: Auto exit failed for {0}.\nReason: {1}\nError: {2}"
+  ,"GmgnAndAutoTrading": "GMGN API & Auto Trading"
+  ,"DefaultBuyAmounts": "Default Buy Amounts"
+  ,"ChooseBuyAmountNetwork": "Choose a network to set its default initial buy amount:"
 }

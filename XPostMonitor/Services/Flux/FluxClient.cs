@@ -8,6 +8,12 @@ namespace XPostMonitor.Services.Flux;
 
 public sealed class FluxClient
 {
+    private const string MemeTokenStyle = " Render it in a polished internet-meme illustration style with expressive "
+        + "shapes, bold clean outlines, vivid flat colors, soft simple shading, playful energy, and a crisp sticker-like finish. "
+        + "Keep the subjects and composition dictated by the post. Do not force a circular badge, mascot, animal, or logo layout. "
+        + "Keep strong readability at tiny thumbnail size. Draw no text by default. If the prompt explicitly quotes one short visible "
+        + "phrase or number, render only that quoted text and copy every character exactly without adding or changing anything.";
+
     private readonly HttpClient httpClient;
     private readonly FluxOptions options;
 
@@ -53,7 +59,46 @@ public sealed class FluxClient
         return result.Data;
     }
 
+    public async Task<byte[]> DownloadSourceImageAsync(string imageUrl, CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out Uri? uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !(uri.Host == "twimg.com" || uri.Host.EndsWith(".twimg.com", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException("X returned an invalid media URL.");
+        }
+
+        return await httpClient.GetByteArrayAsync(uri, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, CancellationToken cancellationToken)
+    {
+        return await CreateTokenImageFromPromptAsync(imagePrompt, null, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, string? chainImageStyle,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(imagePrompt))
+        {
+            throw new ArgumentException("AI did not return an image prompt.");
+        }
+
+        string style = string.IsNullOrWhiteSpace(chainImageStyle)
+            ? string.Empty
+            : " Apply this selected launch-chain palette: " + chainImageStyle;
+        string prompt = imagePrompt + style + MemeTokenStyle + " "
+            + "No URLs, logos, trademarks, token symbols, extra text, or watermark.";
+        return await GenerateAsync(prompt, null, cancellationToken);
+    }
+
     public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl, CancellationToken cancellationToken)
+    {
+        return await CreateTokenImageResultAsync(postText, imageUrl, null, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl,
+        string? chainImageStyle, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(postText) && string.IsNullOrWhiteSpace(imageUrl))
         {
@@ -77,22 +122,33 @@ public sealed class FluxClient
         }
 
         string cleanPostText = Regex.Replace(postText ?? string.Empty, @"https?://\S+", string.Empty).Trim();
+        string style = string.IsNullOrWhiteSpace(chainImageStyle)
+            ? "Choose colors from the source subject or image. "
+            : "Apply this selected launch-chain palette: " + chainImageStyle + " ";
         string prompt = string.IsNullOrWhiteSpace(imageUrl)
-            ? "Create a square poster based directly on this post: " + cleanPostText + ". "
-                + "Show the main idea clearly. You may display only one short key phrase taken exactly from the post. "
-                + "Use a BNB-inspired palette: warm yellow #F0B90B, charcoal #0B0E11, and white accents. "
-                + "Clean bold composition, recognizable at thumbnail size. No URLs, logos, trademarks, coins, currency signs, or fake small text."
-            : "Use the input image as the primary reference for a square illustrated adaptation. "
-                + "Preserve its main subject, action, mood, people count, object count, and recognizable composition. "
+            ? "Create an image based directly on this post: " + cleanPostText + ". "
+                + "Visualize the post-specific hook with its concrete subjects and action. Do not use a broad generic theme. "
+                + style
+                + MemeTokenStyle
+                + " No URLs, logos, trademarks, token symbols, extra text, coins, currency signs, or watermark."
+            : "Use the input image as the primary reference for a meme-token illustrated adaptation. "
+                + "Preserve its main subjects, action, mood, and recognizable composition. "
                 + "Use the post only as context: " + cleanPostText + ". "
-                + "Use a BNB-inspired palette: warm yellow #F0B90B, charcoal #0B0E11, and white accents. "
-                + "No typography, words, letters, numbers, URLs, signs, labels, logos, trademarks, coins, currency signs, or emblems.";
+                + style
+                + MemeTokenStyle
+                + " No URLs, logos, trademarks, extra text, coins, currency signs, or emblems.";
+
+        return await GenerateAsync(prompt, imageUrl, cancellationToken);
+    }
+
+    private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl, CancellationToken cancellationToken)
+    {
 
         Dictionary<string, object> requestBody = new Dictionary<string, object>
         {
             ["prompt"] = prompt,
-            ["width"] = 1024,
-            ["height"] = 1024,
+            ["width"] = 512,
+            ["height"] = 512,
             ["output_format"] = "jpeg",
             ["safety_tolerance"] = 2
         };

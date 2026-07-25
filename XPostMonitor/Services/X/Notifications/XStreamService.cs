@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Configuration;
 using XPostMonitor.Data;
@@ -31,6 +32,18 @@ public sealed class XStreamService : BackgroundService
     // Giữ kết nối X Stream luôn chạy; tự kết nối lại khi bị mất kết nối.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await xApiClient.TerminateFilteredStreamConnectionsAsync(stoppingToken);
+            logger.LogInformation("[X] Cleared previous Filtered Stream connections.");
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning("[X] Could not clear previous Filtered Stream connections: {Message}",
+                exception.Message);
+        }
+
+        TimeSpan rateLimitDelay = TimeSpan.FromMinutes(1);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -42,10 +55,24 @@ public sealed class XStreamService : BackgroundService
                 }
 
                 await ReadStreamAsync(stoppingToken);
+                rateLimitDelay = TimeSpan.FromMinutes(1);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
+            }
+            catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                logger.LogWarning("[X] Filtered Stream rate limited: {Message}. Retry in {Seconds} seconds.",
+                    exception.Message, rateLimitDelay.TotalSeconds);
+                await Task.Delay(rateLimitDelay, stoppingToken);
+                rateLimitDelay = TimeSpan.FromSeconds(Math.Min(rateLimitDelay.TotalSeconds * 2, 320));
+            }
+            catch (HttpRequestException exception)
+            {
+                logger.LogWarning("[X] Filtered Stream unavailable: {Message}. Retry in 30 seconds.",
+                    exception.Message);
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
             catch (Exception exception)
             {

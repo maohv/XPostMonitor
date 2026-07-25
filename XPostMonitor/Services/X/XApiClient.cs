@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.RegularExpressions;
 using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
 
@@ -48,7 +49,7 @@ public sealed class XApiClient
     public async Task<XStreamPostResponse> GetPostAsync(string postId, CancellationToken cancellationToken)
     {
         string url = "2/tweets/" + Uri.EscapeDataString(postId)
-            + "?tweet.fields=created_at,referenced_tweets,author_id,in_reply_to_user_id,attachments"
+            + "?tweet.fields=created_at,lang,referenced_tweets,author_id,in_reply_to_user_id,attachments"
             + "&expansions=author_id,in_reply_to_user_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys,referenced_tweets.id.attachments.media_keys"
             + "&user.fields=name,username,profile_image_url,public_metrics"
             + "&media.fields=media_key,type,url,preview_image_url";
@@ -107,7 +108,7 @@ public sealed class XApiClient
     public async Task<HttpResponseMessage> OpenFilteredStreamAsync(CancellationToken cancellationToken)
     {
         string url = "2/tweets/search/stream"
-            + "?tweet.fields=created_at,referenced_tweets,author_id,in_reply_to_user_id,attachments"
+            + "?tweet.fields=created_at,lang,referenced_tweets,author_id,in_reply_to_user_id,attachments"
             + "&expansions=author_id,in_reply_to_user_id,referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys,referenced_tweets.id.attachments.media_keys"
             + "&user.fields=name,username,profile_image_url,public_metrics"
             + "&media.fields=media_key,type,url,preview_image_url";
@@ -127,6 +128,14 @@ public sealed class XApiClient
         }
     }
 
+    public async Task TerminateFilteredStreamConnectionsAsync(CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Delete,
+            "2/connections/filtered_stream");
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+    }
+
     // Đăng ký nhận sự kiện đổi avatar của một X account.
     public async Task<XActivitySubscription> CreateAvatarSubscriptionAsync(string xUserId, string tag, CancellationToken cancellationToken)
     {
@@ -143,6 +152,35 @@ public sealed class XApiClient
 
         XActivityCreateResponse? result = await response.Content.ReadFromJsonAsync<XActivityCreateResponse>(cancellationToken);
         return result?.Data?.Subscription ?? throw new HttpRequestException("X API did not return an activity subscription.");
+    }
+
+    public async Task<List<XActivitySubscription>> GetActivitySubscriptionsAsync(
+        CancellationToken cancellationToken)
+    {
+        List<XActivitySubscription> subscriptions = [];
+        string? nextToken = null;
+
+        do
+        {
+            string url = "2/activity/subscriptions?max_results=100"
+                + (nextToken == null ? string.Empty : "&pagination_token=" + Uri.EscapeDataString(nextToken));
+            using HttpRequestMessage request = CreateRequest(HttpMethod.Get, url);
+            using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+
+            XActivityListResponse? result = await response.Content
+                .ReadFromJsonAsync<XActivityListResponse>(cancellationToken);
+            if (result == null)
+            {
+                throw new HttpRequestException("X API did not return the activity subscription list.");
+            }
+
+            subscriptions.AddRange(result.Data);
+            nextToken = result.Meta.NextToken;
+        }
+        while (!string.IsNullOrWhiteSpace(nextToken));
+
+        return subscriptions;
     }
 
     // Xóa Activity subscription theo ID mà X đã trả về khi tạo.
@@ -188,6 +226,20 @@ public sealed class XApiClient
         }
 
         string detail = await response.Content.ReadAsStringAsync(cancellationToken);
-        throw new HttpRequestException("X API: " + detail, null, response.StatusCode);
+        string mediaType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+        if (mediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase)
+            || detail.TrimStart().StartsWith("<!DOCTYPE html", StringComparison.OrdinalIgnoreCase))
+        {
+            Match title = Regex.Match(detail, "<title>(.*?)</title>", RegexOptions.IgnoreCase);
+            detail = title.Success ? title.Groups[1].Value.Trim() : "HTML error page";
+        }
+        else
+        {
+            detail = detail.Trim();
+            detail = detail.Length <= 500 ? detail : detail[..500];
+        }
+
+        throw new HttpRequestException("X API HTTP " + (int)response.StatusCode + " "
+            + response.ReasonPhrase + ": " + detail, null, response.StatusCode);
     }
 }

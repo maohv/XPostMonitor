@@ -13,4 +13,7 @@ public sealed class TokenDraftDto
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
 
+    [JsonPropertyName("image_prompt")]
+    public string ImagePrompt { get; set; } = string.Empty;
+
 }

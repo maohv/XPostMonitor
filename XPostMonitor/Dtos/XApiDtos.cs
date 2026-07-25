@@ -110,6 +110,9 @@ public sealed class XPost
     [JsonPropertyName("text")]
     public string Text { get; set; } = string.Empty;
 
+    [JsonPropertyName("lang")]
+    public string? Language { get; set; }
+
     [JsonPropertyName("created_at")]
     public DateTimeOffset? CreatedAt { get; set; }
 
@@ -172,6 +175,21 @@ public sealed class XActivityCreateData
 {
     [JsonPropertyName("subscription")]
     public XActivitySubscription? Subscription { get; set; }
+}
+
+public sealed class XActivityListResponse
+{
+    [JsonPropertyName("data")]
+    public List<XActivitySubscription> Data { get; set; } = [];
+
+    [JsonPropertyName("meta")]
+    public XActivityListMeta Meta { get; set; } = new XActivityListMeta();
+}
+
+public sealed class XActivityListMeta
+{
+    [JsonPropertyName("next_token")]
+    public string? NextToken { get; set; }
 }
 
 public sealed class XActivitySubscription
