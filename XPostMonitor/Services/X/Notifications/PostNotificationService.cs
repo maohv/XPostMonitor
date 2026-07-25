@@ -108,9 +108,6 @@ public sealed class PostNotificationService : BackgroundService
             string language = BotTextService.Normalize(watcher.TelegramUser.LanguageCode);
             XNotificationContent content = XNotificationMessage.Create(account.Username, postEvent.Response,
                 text, language);
-            await telegramNotifications.QueueAsync(watcher.ChatId, content.Text, post.Id, postEvent.ReceivedAt,
-                post.CreatedAt, cancellationToken, content.PhotoUrl, content.PostUrl, true,
-                text.Get(language, "ViewOnX"));
 
             string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
             bool isRepost = referenceType == "retweeted";

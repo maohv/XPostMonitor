@@ -68,7 +68,7 @@
   "FourMemeConnected": "FourMeme 连接成功。\n\n模式：{3}\n募集代币：{0}\nLaunch 费用：{1} BNB\n钱包余额：{2} BNB\n\n未发送任何交易。",
   "FourMemeFailed": "FourMeme 连接失败：{0}",
   "CheckDyorStable": "检查 DYOR Stable",
-  "DyorStableConnected": "DYOR Stable 连接成功。\n\n模式：{4}\nChain 988：{0}\nFactory：{1}\n钱包余额：{2} USDT0\nPinata IPFS：{3}\n\n未发送任何交易。",
+  "DyorStableConnected": "DYOR Stable 连接成功。\n\n模式：{4}\nChain 988：{0}\nFactory：{1}\n钱包余额：{2} USDT0\nMetadata API：{3}\n\n未发送任何交易。",
   "DyorStableFailed": "DYOR Stable 连接失败：{0}",
   "CheckLongRobinhood": "检查 Long Robinhood",
   "LongRobinhoodConnected": "Long 连接成功。\n\n模式：{4}\nChain 4663：{0}\nLauncher：{1}\n合约状态：{2}\n钱包余额：{3} ETH\n\n未发送任何交易。",

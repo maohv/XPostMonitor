@@ -263,7 +263,7 @@ public sealed class TokenSettingsMenuService
             await telegramApi.SendButtonsAsync(chatId,
                 text.Get(language, "DyorStableConnected", result.CorrectChain ? "OK" : "ERROR",
                     result.FactoryFound ? "OK" : "ERROR", balance,
-                    text.Get(language, result.PinataConfigured ? "Configured" : "NotConfigured"),
+                    text.Get(language, result.MetadataApiReady ? "Configured" : "NotConfigured"),
                     text.Get(language,
                         result.EnableRealTransactions ? "LiveMode" : "DryRunMode")),
                 CloseButtons(language), cancellationToken);

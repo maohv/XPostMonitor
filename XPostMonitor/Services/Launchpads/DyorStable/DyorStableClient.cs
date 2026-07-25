@@ -1,11 +1,12 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net.Http.Json;
 using System.Numerics;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using Nethereum.ABI.FunctionEncoding.Attributes;
 using Nethereum.Contracts;
 using Nethereum.Hex.HexTypes;
+using Nethereum.RPC.Eth.DTOs;
 using Nethereum.Util;
 using Nethereum.Web3;
 using Nethereum.Web3.Accounts;
@@ -17,9 +18,9 @@ namespace XPostMonitor.Services.Launchpads.DyorStable;
 public sealed class DyorStableClient
 {
     private const long ChainId = 988;
-    private const string FactoryAddress = "0xDFEf2F90F7E52609cC89b80b68Ff6a1C86C4ddc4";
-    private const string PairTokenAddress = "0x817997Ca8394E26CCE3dE3A076a4889b27DbF9dE";
-    private const string DryRunImageCid = "QmYwAPJzv5CZsnAzt8auVZRnGiRAzVcoHqX6NhZ9VY7K7J";
+    private const string FactoryAddress = "0x80b42aed46d73f47119dc444bea28a9e68f32bf4";
+    private const string ApiPath = "api/stable/v1/";
+    private const string DryRunMetadataUri = "https://example.com/dyor-stable-dry-run.json";
 
     private readonly HttpClient httpClient;
     private readonly DyorStableOptions options;
@@ -39,6 +40,8 @@ public sealed class DyorStableClient
             .WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
         string code = await web3.Eth.GetCode.SendRequestAsync(FactoryAddress)
             .WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        using HttpResponseMessage apiResponse = await httpClient.GetAsync(ApiPath + "integration/config",
+            cancellationToken);
         decimal? balance = null;
 
         if (!string.IsNullOrWhiteSpace(walletAddress))
@@ -49,16 +52,15 @@ public sealed class DyorStableClient
         }
 
         return new DyorStableConnectionResult(chainId.Value == ChainId, code != "0x", balance,
-            !string.IsNullOrWhiteSpace(options.PinataJwt), options.EnableRealTransactions);
+            apiResponse.IsSuccessStatusCode, options.EnableRealTransactions);
     }
 
-    // This method sends a real Stable transaction when EnableRealTransactions is true.
     public async Task<DyorStableTokenResult> CreateTokenAsync(EvmWalletCredentials wallet,
         DyorStableTokenRequest request, CancellationToken cancellationToken)
     {
         if (request.Image.Length == 0)
         {
-            throw new InvalidOperationException("DYOR Swap requires a token image.");
+            throw new InvalidOperationException("DYOR Stable requires a token image.");
         }
 
         SemaphoreSlim walletLock = walletLocks.GetOrAdd(wallet.Address, _ => new SemaphoreSlim(1, 1));
@@ -82,111 +84,167 @@ public sealed class DyorStableClient
             throw new InvalidOperationException("The encrypted private key does not match the EVM wallet address.");
         }
 
-        string imageCid = options.EnableRealTransactions
-            ? await UploadImageAsync(request.Image, cancellationToken)
-            : DryRunImageCid;
-        BigInteger buyAmount = UnitConversion.Convert.ToWei(request.BuyAmount);
-        CreatePairFunction function = new CreatePairFunction
+        string name = Clean(request.Name, 60);
+        string symbol = Clean(request.Symbol, 20);
+        string metadataUri = options.EnableRealTransactions
+            ? await CreateMetadataAsync(name, symbol, request, cancellationToken)
+            : DryRunMetadataUri;
+        PreparedTransaction prepared = await PrepareLaunchAsync(account.Address, name, symbol,
+            metadataUri, request.BuyAmount, cancellationToken);
+        if (prepared.ChainId != ChainId
+            || !string.Equals(prepared.To, FactoryAddress, StringComparison.OrdinalIgnoreCase))
         {
-            ProjectOwner = account.Address,
-            PairToken = PairTokenAddress,
-            AmountIn = buyAmount,
-            AmountToSend = buyAmount,
-            Token = new PumpTokenParameters
-            {
-                Name = Clean(request.Name, 100),
-                Symbol = Clean(request.Symbol, 20),
-                Description = Clean(request.Description, 256),
-                Image = imageCid,
-                Twitter = request.PostUrl
-            }
-        };
-
-        Web3 web3 = new Web3(account, options.RpcUrl);
-        HexBigInteger balance = await web3.Eth.GetBalance.SendRequestAsync(account.Address);
-        if (!options.EnableRealTransactions && balance.Value < buyAmount)
-        {
-            return new DyorStableTokenResult(null, null, null, buyAmount, null, true, false);
+            throw new InvalidOperationException("DYOR Stable returned an unexpected chain or factory.");
         }
 
-        var handler = web3.Eth.GetContractTransactionHandler<CreatePairFunction>();
-        HexBigInteger gas = await handler.EstimateGasAsync(FactoryAddress, function);
-        HexBigInteger gasPrice = await web3.Eth.GasPrice.SendRequestAsync();
-        BigInteger requiredBalance = buyAmount + gas.Value * gasPrice.Value;
+        BigInteger transactionValue = BigInteger.Parse(prepared.Value, CultureInfo.InvariantCulture);
+        Web3 web3 = new Web3(account, options.RpcUrl);
+        HexBigInteger balance = await web3.Eth.GetBalance.SendRequestAsync(account.Address)
+            .WaitAsync(cancellationToken);
+        TransactionInput transaction = new TransactionInput
+        {
+            From = account.Address,
+            To = prepared.To,
+            Data = prepared.Data,
+            Value = new HexBigInteger(transactionValue)
+        };
+        HexBigInteger gas = await web3.Eth.Transactions.EstimateGas.SendRequestAsync(transaction)
+            .WaitAsync(cancellationToken);
+        HexBigInteger currentGasPrice = await web3.Eth.GasPrice.SendRequestAsync().WaitAsync(cancellationToken);
+        HexBigInteger gasPrice = new HexBigInteger(currentGasPrice.Value * 120 / 100);
+        BigInteger requiredBalance = transactionValue + gas.Value * gasPrice.Value;
 
         if (!options.EnableRealTransactions)
         {
-            return new DyorStableTokenResult(null, null, null, buyAmount, gas.Value, true,
+            return new DyorStableTokenResult(null, null, null, transactionValue, gas.Value, true,
                 balance.Value >= requiredBalance);
         }
-
         if (balance.Value < requiredBalance)
         {
             throw new InvalidOperationException("Insufficient USDT0. Required about "
-                + UnitConversion.Convert.FromWei(requiredBalance).ToString("0.########", CultureInfo.InvariantCulture)
-                + " USDT0 including initial buy and gas.");
+                + UnitConversion.Convert.FromWei(requiredBalance).ToString("0.########",
+                    CultureInfo.InvariantCulture) + " USDT0 including launch fee, initial buy and gas.");
         }
 
-        function.Gas = gas;
-        function.GasPrice = gasPrice;
-        var receipt = await handler.SendRequestAndWaitForReceiptAsync(FactoryAddress, function,
-            cancellationToken);
+        transaction.Gas = gas;
+        transaction.GasPrice = gasPrice;
+        TransactionReceipt receipt = await web3.TransactionManager
+            .SendTransactionAndWaitForReceiptAsync(transaction, cancellationToken);
         if (receipt.Status.Value != 1)
         {
-            throw new InvalidOperationException("DYOR Swap token transaction failed: " + receipt.TransactionHash);
+            throw new InvalidOperationException("DYOR Stable token transaction failed: "
+                + receipt.TransactionHash);
         }
 
-        EventLog<PairCreatedEventDto>? created = receipt.DecodeAllEvents<PairCreatedEventDto>().FirstOrDefault();
-        string? tokenAddress = created == null ? null : FindCreatedToken(created.Event);
-        return new DyorStableTokenResult(receipt.TransactionHash, tokenAddress, created?.Event.Pair,
-            buyAmount, gas.Value, false, true);
+        EventLog<TokenLaunchedEventDto>? launched = receipt.DecodeAllEvents<TokenLaunchedEventDto>()
+            .FirstOrDefault();
+        if (launched == null)
+        {
+            throw new InvalidOperationException("DYOR Stable created the token but its address was not found.");
+        }
+        return new DyorStableTokenResult(receipt.TransactionHash, launched.Event.Token,
+            launched.Event.Pool, transactionValue, gas.Value, false, true);
     }
 
-    private async Task<string> UploadImageAsync(byte[] image, CancellationToken cancellationToken)
+    private async Task<string> CreateMetadataAsync(string name, string symbol,
+        DyorStableTokenRequest request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(options.PinataJwt))
-        {
-            throw new InvalidOperationException("DyorStable:PinataJwt is required for a real token.");
-        }
-
         using MultipartFormDataContent form = new MultipartFormDataContent();
-        using ByteArrayContent file = new ByteArrayContent(image);
-        bool isJpeg = image.Length >= 2 && image[0] == 0xFF && image[1] == 0xD8;
-        file.Headers.ContentType = new MediaTypeHeaderValue(isJpeg ? "image/jpeg" : "image/png");
-        form.Add(file, "file", isJpeg ? "token.jpg" : "token.png");
+        using ByteArrayContent file = new ByteArrayContent(request.Image);
+        (string contentType, string extension) = GetImageFormat(request.Image);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        file.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("form-data")
+        {
+            Name = "\"image\"",
+            FileName = "\"token." + extension + "\""
+        };
+        form.Add(file);
+        using HttpResponseMessage imageResponse = await httpClient.PostAsync(ApiPath + "images", form,
+            cancellationToken);
+        string imageJson = await ReadSuccessAsync(imageResponse, cancellationToken);
+        using JsonDocument imageDocument = JsonDocument.Parse(imageJson);
+        string imageUrl = imageDocument.RootElement.GetProperty("url").GetString()
+            ?? throw new JsonException("DYOR Stable returned an empty image URL.");
 
-        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "pinning/pinFileToIPFS");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.PinataJwt);
-        request.Content = form;
-        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        using HttpResponseMessage metadataResponse = await httpClient.PostAsJsonAsync(ApiPath + "metadata", new
+        {
+            name,
+            symbol,
+            description = Clean(request.Description, 256, true),
+            image = imageUrl,
+            x = request.PostUrl
+        }, cancellationToken);
+        string metadataJson = await ReadSuccessAsync(metadataResponse, cancellationToken);
+        using JsonDocument metadataDocument = JsonDocument.Parse(metadataJson);
+        return metadataDocument.RootElement.GetProperty("uri").GetString()
+            ?? throw new JsonException("DYOR Stable returned an empty metadata URI.");
+    }
+
+    private async Task<PreparedTransaction> PrepareLaunchAsync(string walletAddress, string name,
+        string symbol, string metadataUri, decimal buyAmount, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(ApiPath + "launch/prepare", new
+        {
+            name,
+            symbol,
+            metadataUri,
+            feeRecipient = walletAddress,
+            sender = walletAddress,
+            initialBuyEth = buyAmount.ToString("0.######", CultureInfo.InvariantCulture),
+            minTokensOut = "0"
+        }, cancellationToken);
+        string json = await ReadSuccessAsync(response, cancellationToken);
+        return JsonSerializer.Deserialize<PreparedTransaction>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        }) ?? throw new JsonException("DYOR Stable returned an empty prepared transaction.");
+    }
+
+    private static async Task<string> ReadSuccessAsync(HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
         string json = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new HttpRequestException("Pinata upload failed: HTTP " + (int)response.StatusCode + " "
-                + Shorten(json), null, response.StatusCode);
+            throw new HttpRequestException("DYOR Stable API failed: HTTP " + (int)response.StatusCode
+                + " " + Shorten(json), null, response.StatusCode);
         }
-
-        using JsonDocument document = JsonDocument.Parse(json);
-        return document.RootElement.GetProperty("IpfsHash").GetString()
-            ?? throw new JsonException("Pinata returned an empty IPFS hash.");
+        return json;
     }
 
-    private static string FindCreatedToken(PairCreatedEventDto created)
-    {
-        return string.Equals(created.Token0, PairTokenAddress, StringComparison.OrdinalIgnoreCase)
-            ? created.Token1
-            : created.Token0;
-    }
-
-    private static string Clean(string value, int maximumLength)
+    private static string Clean(string value, int maximumLength, bool allowEmpty = false)
     {
         string clean = new string(value.Where(character => !char.IsControl(character)).ToArray()).Trim();
-        if (string.IsNullOrWhiteSpace(clean))
+        if (!allowEmpty && string.IsNullOrWhiteSpace(clean))
         {
-            throw new InvalidOperationException("DYOR Swap token metadata cannot be empty.");
+            throw new InvalidOperationException("DYOR Stable token metadata cannot be empty.");
         }
-
         return clean.Length <= maximumLength ? clean : clean[..maximumLength];
+    }
+
+    private static (string ContentType, string Extension) GetImageFormat(byte[] image)
+    {
+        if (image.Length >= 8 && image[0] == 0x89 && image[1] == 0x50
+            && image[2] == 0x4E && image[3] == 0x47)
+        {
+            return ("image/png", "png");
+        }
+        if (image.Length >= 2 && image[0] == 0xFF && image[1] == 0xD8)
+        {
+            return ("image/jpeg", "jpg");
+        }
+        if (image.Length >= 12 && image[0] == 0x52 && image[1] == 0x49
+            && image[2] == 0x46 && image[3] == 0x46 && image[8] == 0x57
+            && image[9] == 0x45 && image[10] == 0x42 && image[11] == 0x50)
+        {
+            return ("image/webp", "webp");
+        }
+        if (image.Length >= 6 && image[0] == 0x47 && image[1] == 0x49
+            && image[2] == 0x46 && image[3] == 0x38)
+        {
+            return ("image/gif", "gif");
+        }
+        throw new InvalidOperationException("DYOR Stable received an unsupported image format.");
     }
 
     private static string Shorten(string value)
@@ -195,50 +253,30 @@ public sealed class DyorStableClient
         return text.Length <= 500 ? text : text[..500];
     }
 
-    [Function("createPair", "address")]
-    private sealed class CreatePairFunction : FunctionMessage
+    [Event("TokenLaunched")]
+    private sealed class TokenLaunchedEventDto : IEventDTO
     {
-        [Parameter("address", "_projectOwner", 1)]
-        public string ProjectOwner { get; set; } = string.Empty;
-
-        [Parameter("address", "_pairToken", 2)]
-        public string PairToken { get; set; } = string.Empty;
-
-        [Parameter("uint256", "_amountIn", 3)]
-        public BigInteger AmountIn { get; set; }
-
-        [Parameter("tuple", "params", 4)]
-        public PumpTokenParameters Token { get; set; } = new PumpTokenParameters();
+        [Parameter("address", "token", 1, true)] public string Token { get; set; } = string.Empty;
+        [Parameter("address", "deployer", 2, true)] public string Deployer { get; set; } = string.Empty;
+        [Parameter("address", "dexFactory", 3, true)] public string DexFactory { get; set; } = string.Empty;
+        [Parameter("address", "pairToken", 4, false)] public string PairToken { get; set; } = string.Empty;
+        [Parameter("address", "pool", 5, false)] public string Pool { get; set; } = string.Empty;
+        [Parameter("uint256", "positionId", 6, false)] public BigInteger PositionId { get; set; }
+        [Parameter("uint256", "restrictionsEndBlock", 7, false)] public BigInteger RestrictionsEndBlock { get; set; }
+        [Parameter("uint256", "initialBuyAmount", 8, false)] public BigInteger InitialBuyAmount { get; set; }
+        [Parameter("string", "metadataUri", 9, false)] public string MetadataUri { get; set; } = string.Empty;
+        [Parameter("address", "feeRecipient", 10, false)] public string FeeRecipient { get; set; } = string.Empty;
     }
 
-    [Struct("PumpTokenStruct")]
-    private sealed class PumpTokenParameters
+    private sealed class PreparedTransaction
     {
-        [Parameter("string", "name", 1)] public string Name { get; set; } = string.Empty;
-        [Parameter("string", "symbol", 2)] public string Symbol { get; set; } = string.Empty;
-        [Parameter("string", "description", 3)] public string Description { get; set; } = string.Empty;
-        [Parameter("string", "image", 4)] public string Image { get; set; } = string.Empty;
-        [Parameter("string", "website", 5)] public string Website { get; set; } = string.Empty;
-        [Parameter("string", "telegram", 6)] public string Telegram { get; set; } = string.Empty;
-        [Parameter("string", "twitter", 7)] public string Twitter { get; set; } = string.Empty;
-        [Parameter("string", "meta", 8)] public string Meta { get; set; } = string.Empty;
-        [Parameter("uint256", "totalSupply", 9)] public BigInteger TotalSupply { get; set; }
-        [Parameter("uint256", "realEthReserves", 10)] public BigInteger RealEthReserves { get; set; }
-        [Parameter("uint256", "realTokenReserves", 11)] public BigInteger RealTokenReserves { get; set; }
-        [Parameter("uint256", "liquidityEth", 12)] public BigInteger LiquidityEth { get; set; }
-        [Parameter("uint256", "liquidityToken", 13)] public BigInteger LiquidityToken { get; set; }
-        [Parameter("uint256", "initialVirtualTokenSlippage", 14)] public BigInteger InitialVirtualTokenSlippage { get; set; }
-        [Parameter("uint256", "initialVirtualEthReserves", 15)] public BigInteger InitialVirtualEthReserves { get; set; }
-        [Parameter("uint256", "initialVirtualTokenReserves", 16)] public BigInteger InitialVirtualTokenReserves { get; set; }
-    }
-
-    [Event("PairCreated")]
-    private sealed class PairCreatedEventDto : IEventDTO
-    {
-        [Parameter("address", "token0", 1, true)] public string Token0 { get; set; } = string.Empty;
-        [Parameter("address", "token1", 2, true)] public string Token1 { get; set; } = string.Empty;
-        [Parameter("address", "pair", 3, false)] public string Pair { get; set; } = string.Empty;
-        [Parameter("uint256", "", 4, false)] public BigInteger Index { get; set; }
+        public string Chain { get; set; } = string.Empty;
+        public long ChainId { get; set; }
+        public string To { get; set; } = string.Empty;
+        public string Data { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+        public string LaunchFee { get; set; } = string.Empty;
+        public string InitialBuy { get; set; } = string.Empty;
     }
 }
 
@@ -249,4 +287,4 @@ public sealed record DyorStableTokenResult(string? TransactionHash, string? Toke
     BigInteger TransactionValueWei, BigInteger? EstimatedGas, bool IsDryRun, bool HasEnoughBalance);
 
 public sealed record DyorStableConnectionResult(bool CorrectChain, bool FactoryFound, decimal? Balance,
-    bool PinataConfigured, bool EnableRealTransactions);
+    bool MetadataApiReady, bool EnableRealTransactions);

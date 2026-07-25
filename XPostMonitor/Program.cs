@@ -105,7 +105,7 @@ builder.Services.AddHttpClient<FourMemeClient>(client =>
 
 builder.Services.AddHttpClient<DyorStableClient>(client =>
 {
-    client.BaseAddress = new Uri("https://api.pinata.cloud/");
+    client.BaseAddress = new Uri("https://dyorv3.org/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 

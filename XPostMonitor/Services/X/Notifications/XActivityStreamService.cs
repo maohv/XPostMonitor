@@ -16,7 +16,6 @@ public sealed class XActivityStreamService : BackgroundService
     private readonly XApiClient xApiClient;
     private readonly TelegramNotificationService telegramNotifications;
     private readonly ILogger<XActivityStreamService> logger;
-    private readonly bool enablePersonalBot;
     private readonly string channelLanguage;
     private readonly BotTextService text;
 
@@ -28,7 +27,6 @@ public sealed class XActivityStreamService : BackgroundService
         this.xApiClient = xApiClient;
         this.telegramNotifications = telegramNotifications;
         this.logger = logger;
-        enablePersonalBot = options.EnablePersonalBot;
         channelLanguage = BotTextService.Normalize(options.ChannelLanguage);
         this.text = text;
     }
@@ -50,6 +48,12 @@ public sealed class XActivityStreamService : BackgroundService
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
+            }
+            catch (HttpRequestException exception)
+            {
+                logger.LogWarning("[X] Activity Stream unavailable: {Message}. Retry in 30 seconds.",
+                    exception.Message);
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
             catch (Exception exception)
             {
@@ -98,8 +102,7 @@ public sealed class XActivityStreamService : BackgroundService
     {
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        XAccount? account = await db.XAccounts.Include(item => item.Watchers)
-            .ThenInclude(watcher => watcher.TelegramUser)
+        XAccount? account = await db.XAccounts
             .FirstOrDefaultAsync(item => item.XUserId == activity.Filter.UserId, cancellationToken);
 
         if (account == null)
@@ -113,18 +116,6 @@ public sealed class XActivityStreamService : BackgroundService
         {
             await telegramNotifications.QueueAsync(account.TelegramChannelId.Value,
                 CreateMessage(account.Username, originalAvatarUrl, channelLanguage), eventId, receivedAt, null,
-                cancellationToken);
-        }
-
-        List<WatchlistEntry> premiumWatchers = account.Watchers
-            .Where(watcher => enablePersonalBot && watcher.TelegramUser.IsPremium)
-            .ToList();
-
-        foreach (WatchlistEntry watcher in premiumWatchers)
-        {
-            string language = BotTextService.Normalize(watcher.TelegramUser.LanguageCode);
-            await telegramNotifications.QueueAsync(watcher.ChatId,
-                CreateMessage(account.Username, originalAvatarUrl, language), eventId, receivedAt, null,
                 cancellationToken);
         }
 

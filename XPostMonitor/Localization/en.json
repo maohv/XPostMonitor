@@ -119,7 +119,7 @@
   "FourMemeConnected": "FourMeme connected.\n\nMode: {3}\nRaised token: {0}\nLaunch fee: {1} BNB\nWallet balance: {2} BNB\n\nNo transaction was sent.",
   "FourMemeFailed": "FourMeme connection failed: {0}",
   "CheckDyorStable": "Check DYOR Stable",
-  "DyorStableConnected": "DYOR Stable connected.\n\nMode: {4}\nChain 988: {0}\nFactory: {1}\nWallet balance: {2} USDT0\nPinata IPFS: {3}\n\nNo transaction was sent.",
+  "DyorStableConnected": "DYOR Stable connected.\n\nMode: {4}\nChain 988: {0}\nFactory: {1}\nWallet balance: {2} USDT0\nMetadata API: {3}\n\nNo transaction was sent.",
   "DyorStableFailed": "DYOR Stable connection failed: {0}",
   "CheckLongRobinhood": "Check Long Robinhood",
   "LongRobinhoodConnected": "Long connected.\n\nMode: {4}\nChain 4663: {0}\nLauncher: {1}\nContract status: {2}\nWallet balance: {3} ETH\n\nNo transaction was sent.",

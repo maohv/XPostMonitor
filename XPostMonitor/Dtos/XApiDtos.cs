@@ -177,6 +177,21 @@ public sealed class XActivityCreateData
     public XActivitySubscription? Subscription { get; set; }
 }
 
+public sealed class XActivityListResponse
+{
+    [JsonPropertyName("data")]
+    public List<XActivitySubscription> Data { get; set; } = [];
+
+    [JsonPropertyName("meta")]
+    public XActivityListMeta Meta { get; set; } = new XActivityListMeta();
+}
+
+public sealed class XActivityListMeta
+{
+    [JsonPropertyName("next_token")]
+    public string? NextToken { get; set; }
+}
+
 public sealed class XActivitySubscription
 {
     [JsonPropertyName("subscription_id")]
