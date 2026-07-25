@@ -115,7 +115,7 @@ public sealed class PostNotificationService : BackgroundService
             string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
             bool isRepost = referenceType == "retweeted";
             bool canCreateToken = watcher.TelegramUser.TradingSettings?.EnableTokenCreation == true
-                && LaunchpadCatalog.IsValid(watcher.TokenChain, watcher.TokenDex)
+                && LaunchpadCatalog.IsValidRoute(watcher.TokenChain, watcher.TokenDex, watcher.TokenAnchor)
                 && !isRepost;
             if (canCreateToken)
             {
@@ -123,7 +123,7 @@ public sealed class PostNotificationService : BackgroundService
                     ? "[POST_TYPE=reply]\n" + post.Text
                     : post.Text;
                 await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, tokenText, post.Language,
-                    content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!,
+                    content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!, watcher.TokenAnchor,
                     content.OwnPhotoUrl != null,
                     watcher.TelegramUser.LanguageCode, postEvent.ReceivedAt, cancellationToken);
             }

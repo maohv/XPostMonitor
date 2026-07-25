@@ -20,12 +20,13 @@ public sealed class ManualTokenMenuService
     private readonly EvmWalletService evmWalletService;
     private readonly FourMemeOptions fourMemeOptions;
     private readonly DyorStableOptions dyorStableOptions;
+    private readonly LongRobinhoodOptions longRobinhoodOptions;
     private readonly BotTextService text;
 
     public ManualTokenMenuService(TelegramApiClient telegramApi, XApiClient xApiClient,
         TokenSettingsService tokenSettings, TokenCreationService tokenCreation,
         EvmWalletService evmWalletService, FourMemeOptions fourMemeOptions,
-        DyorStableOptions dyorStableOptions, BotTextService text)
+        DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions, BotTextService text)
     {
         this.telegramApi = telegramApi;
         this.xApiClient = xApiClient;
@@ -34,6 +35,7 @@ public sealed class ManualTokenMenuService
         this.evmWalletService = evmWalletService;
         this.fourMemeOptions = fourMemeOptions;
         this.dyorStableOptions = dyorStableOptions;
+        this.longRobinhoodOptions = longRobinhoodOptions;
         this.text = text;
     }
 
@@ -80,8 +82,15 @@ public sealed class ManualTokenMenuService
             return;
         }
 
-        string[] route = parts[3].Split(',', 2);
-        if (route.Length != 2 || !LaunchpadCatalog.IsValid(route[0], route[1]))
+        string[] route = parts[3].Split(',', 3);
+        string? anchor = route.Length == 3 ? route[2] : null;
+        if (parts[1] == "market" && route.Length >= 2 && LaunchpadCatalog.IsValid(route[0], route[1]))
+        {
+            await ShowLongAnchorsAsync(chatId, postId, route[0], route[1], language, cancellationToken);
+            return;
+        }
+
+        if (route.Length < 2 || !LaunchpadCatalog.IsValidRoute(route[0], route[1], anchor))
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualExpired"), cancellationToken);
             return;
@@ -89,11 +98,11 @@ public sealed class ManualTokenMenuService
 
         if (parts[1] == "confirm")
         {
-            await ShowConfirmationAsync(chatId, postId, route[0], route[1], language, cancellationToken);
+            await ShowConfirmationAsync(chatId, postId, route[0], route[1], anchor, language, cancellationToken);
         }
         else if (parts[1] == "create")
         {
-            await CreateAsync(chatId, postId, route[0], route[1], language, cancellationToken);
+            await CreateAsync(chatId, postId, route[0], route[1], anchor, language, cancellationToken);
         }
     }
 
@@ -109,8 +118,9 @@ public sealed class ManualTokenMenuService
 
         List<IReadOnlyList<TelegramInlineButton>> buttons = network.Launchpads
             .Select(launchpad => (IReadOnlyList<TelegramInlineButton>)
-                [new TelegramInlineButton(launchpad.DisplayName,
-                    "manual:confirm:" + postId + ":" + chain + "," + launchpad.Code)])
+                [new TelegramInlineButton(launchpad.DisplayName, launchpad.Code == "long"
+                    ? "manual:market:" + postId + ":" + chain + "," + launchpad.Code
+                    : "manual:confirm:" + postId + ":" + chain + "," + launchpad.Code)])
             .ToList();
         buttons.Add([new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]);
 
@@ -118,15 +128,36 @@ public sealed class ManualTokenMenuService
             text.Get(language, "ChooseLaunchpad", network.DisplayName), buttons, cancellationToken);
     }
 
-    private async Task ShowConfirmationAsync(long chatId, string postId, string chain, string dex, string language,
+    private async Task ShowLongAnchorsAsync(long chatId, string postId, string chain, string dex, string language,
         CancellationToken cancellationToken)
+    {
+        List<IReadOnlyList<TelegramInlineButton>> buttons = LaunchpadCatalog.LongAnchors
+            .Select(anchor => (IReadOnlyList<TelegramInlineButton>)
+                [new TelegramInlineButton(anchor.DisplayName,
+                    "manual:confirm:" + postId + ":" + chain + "," + dex + "," + anchor.Code)])
+            .ToList();
+        buttons.Add([new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]);
+
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseLongAnchor"), buttons,
+            cancellationToken);
+    }
+
+    private async Task ShowConfirmationAsync(long chatId, string postId, string chain, string dex, string? anchor,
+        string language, CancellationToken cancellationToken)
     {
         EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, cancellationToken);
         TokenCreateSettings? settings = await tokenSettings.GetChainSettingsAsync(chatId, chain,
             cancellationToken);
-        if (wallet == null || settings == null)
+        if (wallet == null)
         {
-            await telegramApi.SendMessageAsync(chatId, text.Get(language, "LaunchpadSettingsMissing"),
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "EvmWalletMissing"),
+                cancellationToken);
+            return;
+        }
+        if (settings == null)
+        {
+            string networkName = LaunchpadCatalog.Find(chain)?.DisplayName ?? chain;
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "SetChainFirst", networkName),
                 cancellationToken);
             return;
         }
@@ -142,22 +173,25 @@ public sealed class ManualTokenMenuService
         }
 
         string postUrl = "https://x.com/i/status/" + postId;
-        bool live = dex == "fourmeme"
-            ? fourMemeOptions.EnableRealTransactions
-            : dyorStableOptions.EnableRealTransactions;
-        string message = text.Get(language, live ? "TokenConfirmation" : "TokenTestConfirmation",
-            postUrl, network.DisplayName,
+        bool live = IsLive(dex);
+        string confirmationKey = live ? "TokenConfirmation" : "TokenTestConfirmation";
+        string message = text.Get(language, confirmationKey, postUrl, network.DisplayName,
             launchpad.DisplayName, settings.BuyAmount.ToString(CultureInfo.InvariantCulture), network.Currency);
+        if (dex == "long")
+        {
+            message += "\n" + text.Get(language, "StockAnchor") + ": " + anchor;
+        }
         IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
         [
             [new TelegramInlineButton(text.Get(language, live ? "CreateRealToken" : "RunTokenTest"),
-                "manual:create:" + postId + ":" + chain + "," + dex)],
+                "manual:create:" + postId + ":" + chain + "," + dex
+                    + (anchor == null ? string.Empty : "," + anchor))],
             [new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]
         ];
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
 
-    private async Task CreateAsync(long chatId, string postId, string chain, string dex,
+    private async Task CreateAsync(long chatId, string postId, string chain, string dex, string? anchor,
         string language, CancellationToken cancellationToken)
     {
         try
@@ -177,7 +211,7 @@ public sealed class ManualTokenMenuService
                 ? "[POST_TYPE=reply]\n" + post.Text
                 : post.Text;
             bool queued = await tokenCreation.QueueManualAsync(chatId, postId, tokenText,
-                post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, language,
+                post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, language,
                 cancellationToken);
             if (!queued)
             {
@@ -186,9 +220,7 @@ public sealed class ManualTokenMenuService
                 return;
             }
 
-            bool live = dex == "fourmeme"
-                ? fourMemeOptions.EnableRealTransactions
-                : dyorStableOptions.EnableRealTransactions;
+            bool live = IsLive(dex);
             string queuedText = live ? "ManualQueued" : "TokenTestStarted";
             await telegramApi.SendMessageAsync(chatId, text.Get(language, queuedText), cancellationToken);
         }
@@ -197,5 +229,17 @@ public sealed class ManualTokenMenuService
             await telegramApi.SendMessageAsync(chatId,
                 text.Get(language, "ManualPostFailed", exception.Message), cancellationToken);
         }
+    }
+
+    private bool IsLive(string launchpad)
+    {
+        if (launchpad == "fourmeme")
+        {
+            return fourMemeOptions.EnableRealTransactions;
+        }
+
+        return launchpad == "dyorswap"
+            ? dyorStableOptions.EnableRealTransactions
+            : longRobinhoodOptions.EnableRealTransactions;
     }
 }

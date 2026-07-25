@@ -4,6 +4,7 @@ using XPostMonitor.Dtos;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
+using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Telegram.Localization;
 using XPostMonitor.Services.Wallets;
 
@@ -18,12 +19,13 @@ public sealed class TokenSettingsMenuService
     private readonly EvmWalletService evmWalletService;
     private readonly FourMemeClient fourMemeClient;
     private readonly DyorStableClient dyorStableClient;
+    private readonly LongRobinhoodClient longRobinhoodClient;
     private readonly BotTextService text;
     private readonly ConcurrentDictionary<long, string> pendingAmounts = new();
 
     public TokenSettingsMenuService(TelegramApiClient telegramApi, TokenSettingsService tokenSettings,
         PremiumService premiumService, EvmWalletService evmWalletService, FourMemeClient fourMemeClient,
-        DyorStableClient dyorStableClient, BotTextService text)
+        DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient, BotTextService text)
     {
         this.telegramApi = telegramApi;
         this.tokenSettings = tokenSettings;
@@ -31,6 +33,7 @@ public sealed class TokenSettingsMenuService
         this.evmWalletService = evmWalletService;
         this.fourMemeClient = fourMemeClient;
         this.dyorStableClient = dyorStableClient;
+        this.longRobinhoodClient = longRobinhoodClient;
         this.text = text;
     }
 
@@ -47,7 +50,8 @@ public sealed class TokenSettingsMenuService
             [new TelegramInlineButton(text.Get(language, "EnableDisableAuto"), "settings:toggle")],
             [new TelegramInlineButton(text.Get(language, "EvmWallet"), "settings:evm")],
             [new TelegramInlineButton(text.Get(language, "CheckFourMeme"), "settings:fourmeme")],
-            [new TelegramInlineButton(text.Get(language, "CheckDyorStable"), "settings:dyorstable")]
+            [new TelegramInlineButton(text.Get(language, "CheckDyorStable"), "settings:dyorstable")],
+            [new TelegramInlineButton(text.Get(language, "CheckLongRobinhood"), "settings:longrobinhood")]
         ];
 
         foreach (LaunchpadNetwork network in LaunchpadCatalog.All)
@@ -116,6 +120,10 @@ public sealed class TokenSettingsMenuService
                 await CheckDyorStableAsync(chatId, language, cancellationToken);
                 return;
 
+            case "longrobinhood":
+                await CheckLongRobinhoodAsync(chatId, language, cancellationToken);
+                return;
+
             case "back":
                 await ShowAsync(chatId, cancellationToken);
                 return;
@@ -148,13 +156,15 @@ public sealed class TokenSettingsMenuService
             return;
         }
 
+        LaunchpadNetwork network = LaunchpadCatalog.Find(chain)!;
         string message = await tokenSettings.GetNetworkSummaryAsync(chatId, chain, language, cancellationToken);
-        IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
-        [
-            [new TelegramInlineButton(text.Get(language, "ChangeAmount"), "settings:amount:" + chain)],
-            [new TelegramInlineButton(text.Get(language, "Back"), "settings:back")],
-            CloseButtons(language)[0]
-        ];
+        List<IReadOnlyList<TelegramInlineButton>> buttons = [];
+        if (network.MinimumBuyAmount > 0)
+        {
+            buttons.Add([new TelegramInlineButton(text.Get(language, "ChangeAmount"), "settings:amount:" + chain)]);
+        }
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Back"), "settings:back")]);
+        buttons.Add(CloseButtons(language)[0]);
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
 
@@ -249,6 +259,30 @@ public sealed class TokenSettingsMenuService
         {
             await telegramApi.SendButtonsAsync(chatId,
                 text.Get(language, "DyorStableFailed", exception.Message), CloseButtons(language),
+                cancellationToken);
+        }
+    }
+
+    private async Task CheckLongRobinhoodAsync(long chatId, string language,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, cancellationToken);
+            LongRobinhoodConnectionResult result = await longRobinhoodClient.CheckAsync(wallet?.Address,
+                cancellationToken);
+            string balance = result.Balance?.ToString("0.########", CultureInfo.InvariantCulture)
+                ?? text.Get(language, "NotConfigured");
+            await telegramApi.SendButtonsAsync(chatId,
+                text.Get(language, "LongRobinhoodConnected", result.CorrectChain ? "OK" : "ERROR",
+                    result.LauncherFound ? "OK" : "ERROR", result.Paused ? "PAUSED" : "OK", balance,
+                    text.Get(language, result.EnableRealTransactions ? "LiveMode" : "DryRunMode")),
+                CloseButtons(language), cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await telegramApi.SendButtonsAsync(chatId,
+                text.Get(language, "LongRobinhoodFailed", exception.Message), CloseButtons(language),
                 cancellationToken);
         }
     }

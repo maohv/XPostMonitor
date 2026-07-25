@@ -41,9 +41,11 @@ public sealed class TokenSettingsService
         foreach (LaunchpadNetwork network in LaunchpadCatalog.All)
         {
             UserChainTradingSettings? chain = chains.FirstOrDefault(item => item.Chain == network.Chain);
-            string amount = chain?.BuyAmount > 0
-                ? chain.BuyAmount.ToString(CultureInfo.InvariantCulture) + " " + network.Currency
-                : text.Get(language, "NotSet");
+            string amount = network.MinimumBuyAmount == 0
+                ? text.Get(language, "GasOnly")
+                : chain?.BuyAmount > 0
+                    ? chain.BuyAmount.ToString(CultureInfo.InvariantCulture) + " " + network.Currency
+                    : text.Get(language, "NotSet");
             lines.Add(network.DisplayName + ": " + amount);
         }
 
@@ -63,6 +65,11 @@ public sealed class TokenSettingsService
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         UserChainTradingSettings? settings = await db.UserChainTradingSettings
             .FindAsync([chatId, network.Chain], cancellationToken);
+        if (network.MinimumBuyAmount == 0)
+        {
+            return text.Get(language, "NetworkSettingsGasOnly", network.DisplayName);
+        }
+
         string amount = settings?.BuyAmount > 0
             ? settings.BuyAmount.ToString(CultureInfo.InvariantCulture) + " " + network.Currency
             : text.Get(language, "NotSet");
@@ -76,6 +83,10 @@ public sealed class TokenSettingsService
         if (network == null)
         {
             return text.Get(language, "UnsupportedNetworkShort");
+        }
+        if (network.MinimumBuyAmount == 0)
+        {
+            return text.Get(language, "GasOnly");
         }
 
         if (!decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal amount)
@@ -122,7 +133,7 @@ public sealed class TokenSettingsService
             .Where(item => item.ChatId == chatId && item.TokenChain != null && item.TokenDex != null)
             .ToListAsync(cancellationToken);
         List<string> routedChains = routes
-            .Where(item => LaunchpadCatalog.IsValid(item.TokenChain, item.TokenDex))
+            .Where(item => LaunchpadCatalog.IsValidRoute(item.TokenChain, item.TokenDex, item.TokenAnchor))
             .Select(item => item.TokenChain!)
             .Distinct()
             .ToList();
@@ -135,8 +146,10 @@ public sealed class TokenSettingsService
             .Where(item => item.ChatId == chatId && routedChains.Contains(item.Chain))
             .ToListAsync(cancellationToken);
         string? missingChain = routedChains.FirstOrDefault(chain =>
-            !chainSettings.Any(item => item.Chain == chain && item.BuyAmount >=
-                (LaunchpadCatalog.Find(chain)?.MinimumBuyAmount ?? 0m)));
+        {
+            decimal minimum = LaunchpadCatalog.Find(chain)?.MinimumBuyAmount ?? 0m;
+            return minimum > 0 && !chainSettings.Any(item => item.Chain == chain && item.BuyAmount >= minimum);
+        });
         if (missingChain != null)
         {
             return text.Get(language, "SetChainFirst",
@@ -173,9 +186,22 @@ public sealed class TokenSettingsService
     private static async Task<TokenCreateSettings?> GetChainSettingsAsync(AppDbContext db, long chatId,
         string chain, CancellationToken cancellationToken)
     {
+        LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
+        if (network == null)
+        {
+            return null;
+        }
+        if (network.MinimumBuyAmount == 0)
+        {
+            return new TokenCreateSettings(0m, 5m);
+        }
+
         UserChainTradingSettings? settings = await db.UserChainTradingSettings
             .FindAsync([chatId, chain], cancellationToken);
-        return settings == null || settings.BuyAmount <= 0 ? null : new TokenCreateSettings(settings.BuyAmount);
+        return settings == null || settings.BuyAmount <= 0
+            ? null
+            : new TokenCreateSettings(settings.BuyAmount,
+                settings.SlippagePercent > 0 ? settings.SlippagePercent : 5m);
     }
 
     private static async Task<UserChainTradingSettings> GetOrCreateChainAsync(AppDbContext db, long chatId,
@@ -215,4 +241,4 @@ public sealed class TokenSettingsService
     }
 }
 
-public sealed record TokenCreateSettings(decimal BuyAmount);
+public sealed record TokenCreateSettings(decimal BuyAmount, decimal SlippagePercent);

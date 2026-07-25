@@ -26,8 +26,8 @@ public sealed class WatchlistService
     }
 
     // Kiểm tra username trên X rồi thêm tài khoản vào watchlist của Telegram user.
-    public async Task<string> AddAsync(long chatId, string? username, string? chain, string? dex, string language,
-        CancellationToken cancellationToken)
+    public async Task<string> AddAsync(long chatId, string? username, string? chain, string? dex, string? anchor,
+        string language, CancellationToken cancellationToken)
     {
         username = username?.Trim().TrimStart('@');
         if (!IsValidXUsername(username))
@@ -36,13 +36,14 @@ public sealed class WatchlistService
         }
 
         bool alertsOnly = string.IsNullOrWhiteSpace(chain) && string.IsNullOrWhiteSpace(dex);
-        if (!alertsOnly && !LaunchpadCatalog.IsValid(chain, dex))
+        if (!alertsOnly && !LaunchpadCatalog.IsValidRoute(chain, dex, anchor))
         {
             return text.Get(language, "UnsupportedRoute");
         }
 
         chain = chain?.ToLowerInvariant();
         dex = dex?.ToLowerInvariant();
+        anchor = LaunchpadCatalog.FindLongAnchor(anchor)?.Code;
 
         try
         {
@@ -68,11 +69,12 @@ public sealed class WatchlistService
             {
                 existingEntry.TokenChain = alertsOnly ? null : chain;
                 existingEntry.TokenDex = alertsOnly ? null : dex;
+                existingEntry.TokenAnchor = alertsOnly ? null : anchor;
                 existingEntry.XAccount.Username = xUser.Username;
                 existingEntry.XAccount.DisplayName = xUser.Name;
                 existingEntry.XAccount.UpdatedAtUtc = DateTime.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
-                return text.Get(language, "WatchUpdated", xUser.Username, FormatMode(chain, dex, language));
+                return text.Get(language, "WatchUpdated", xUser.Username, FormatMode(chain, dex, anchor, language));
             }
 
             DateTime now = DateTime.UtcNow;
@@ -97,12 +99,13 @@ public sealed class WatchlistService
                 XUserId = xUser.Id,
                 TokenChain = alertsOnly ? null : chain,
                 TokenDex = alertsOnly ? null : dex,
+                TokenAnchor = alertsOnly ? null : anchor,
                 CreatedAtUtc = now
             });
 
             await db.SaveChangesAsync(cancellationToken);
             logger.LogInformation("[DB] Thêm @{Username} vào watchlist thành công.", xUser.Username);
-            return text.Get(language, "WatchAdded", xUser.Username, FormatMode(chain, dex, language));
+            return text.Get(language, "WatchAdded", xUser.Username, FormatMode(chain, dex, anchor, language));
         }
         catch (HttpRequestException exception)
         {
@@ -180,6 +183,7 @@ public sealed class WatchlistService
             string mode = network == null || launchpad == null
                 ? text.Get(language, "AlertsOnly")
                 : network.DisplayName + " · " + launchpad.DisplayName
+                    + (entry.TokenAnchor == null ? string.Empty : " · " + entry.TokenAnchor)
                     + " · " + text.Get(language, autoCreateEnabled ? "AutoCreate" : "AutoCreateOff");
             return "@" + entry.XAccount.Username + "\n   " + mode;
         }).ToList();
@@ -198,12 +202,13 @@ public sealed class WatchlistService
         return username.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
     }
 
-    private string FormatMode(string? chain, string? dex, string language)
+    private string FormatMode(string? chain, string? dex, string? anchor, string language)
     {
         LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
         LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == dex);
         return network == null || launchpad == null
             ? text.Get(language, "AlertsOnly")
-            : network.DisplayName + " · " + launchpad.DisplayName;
+            : network.DisplayName + " · " + launchpad.DisplayName
+                + (anchor == null ? string.Empty : " · " + anchor);
     }
 }

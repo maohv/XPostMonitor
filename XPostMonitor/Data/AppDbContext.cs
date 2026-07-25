@@ -45,6 +45,7 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.XUserId).HasMaxLength(20);
             entity.Property(x => x.TokenChain).HasMaxLength(20);
             entity.Property(x => x.TokenDex).HasMaxLength(20);
+            entity.Property(x => x.TokenAnchor).HasMaxLength(20);
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.Watchlist).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.XAccount).WithMany(x => x.Watchers).HasForeignKey(x => x.XUserId).OnDelete(DeleteBehavior.Cascade);
         });

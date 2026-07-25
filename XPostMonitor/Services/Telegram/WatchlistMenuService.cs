@@ -76,21 +76,34 @@ public sealed class WatchlistMenuService
 
         if (parts[1] == "dex")
         {
+            string[] values = chain.Split(',', 3);
+            if (values.Length >= 2)
+            {
+                string? anchor = values.Length == 3 ? values[2] : null;
+                await ShowConfirmationAsync(chatId, username, values[0], values[1], anchor, language,
+                    cancellationToken);
+            }
+            return;
+        }
+
+        if (parts[1] == "market")
+        {
             string[] values = chain.Split(',', 2);
             if (values.Length == 2)
             {
-                await ShowConfirmationAsync(chatId, username, values[0], values[1], language, cancellationToken);
+                await ShowLongAnchorsAsync(chatId, username, values[0], values[1], language, cancellationToken);
             }
             return;
         }
 
         if (parts[1] == "save")
         {
-            string[] values = chain.Split(',', 2);
+            string[] values = chain.Split(',', 3);
             string? selectedChain = values[0] == "none" ? null : values[0];
             string? selectedDex = values.Length < 2 || values[1] == "none" ? null : values[1];
-            string reply = await watchlistService.AddAsync(chatId, username, selectedChain, selectedDex, language,
-                cancellationToken);
+            string? selectedAnchor = values.Length < 3 ? null : values[2];
+            string reply = await watchlistService.AddAsync(chatId, username, selectedChain, selectedDex,
+                selectedAnchor, language, cancellationToken);
             await telegramApi.SendMessageAsync(chatId, reply, cancellationToken);
         }
     }
@@ -107,8 +120,9 @@ public sealed class WatchlistMenuService
 
         List<IReadOnlyList<TelegramInlineButton>> buttons = network.Launchpads
             .Select(launchpad => (IReadOnlyList<TelegramInlineButton>)
-                [new TelegramInlineButton(launchpad.DisplayName,
-                    "watch:dex:" + username + ":" + network.Chain + "," + launchpad.Code)])
+                [new TelegramInlineButton(launchpad.DisplayName, launchpad.Code == "long"
+                    ? "watch:market:" + username + ":" + network.Chain + "," + launchpad.Code
+                    : "watch:dex:" + username + ":" + network.Chain + "," + launchpad.Code)])
             .ToList();
         buttons.Add([new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]);
 
@@ -116,12 +130,26 @@ public sealed class WatchlistMenuService
             buttons, cancellationToken);
     }
 
-    private async Task ShowConfirmationAsync(long chatId, string username, string chain, string dex, string language,
+    private async Task ShowLongAnchorsAsync(long chatId, string username, string chain, string dex, string language,
         CancellationToken cancellationToken)
+    {
+        List<IReadOnlyList<TelegramInlineButton>> buttons = LaunchpadCatalog.LongAnchors
+            .Select(anchor => (IReadOnlyList<TelegramInlineButton>)
+                [new TelegramInlineButton(anchor.DisplayName,
+                    "watch:dex:" + username + ":" + chain + "," + dex + "," + anchor.Code)])
+            .ToList();
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]);
+
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseLongAnchor"), buttons,
+            cancellationToken);
+    }
+
+    private async Task ShowConfirmationAsync(long chatId, string username, string chain, string dex, string? anchor,
+        string language, CancellationToken cancellationToken)
     {
         LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
         LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == dex);
-        if (network == null || launchpad == null)
+        if (network == null || launchpad == null || !LaunchpadCatalog.IsValidRoute(chain, dex, anchor))
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "UnsupportedSelection"), cancellationToken);
             return;
@@ -129,14 +157,16 @@ public sealed class WatchlistMenuService
 
         IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
         [
-            [new TelegramInlineButton(text.Get(language, "Confirm"), "watch:save:" + username + ":" + chain + "," + dex)],
+            [new TelegramInlineButton(text.Get(language, "Confirm"), "watch:save:" + username + ":" + chain + "," + dex
+                + (anchor == null ? string.Empty : "," + anchor))],
             [new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]
         ];
 
         string message = text.Get(language, "PleaseConfirm") + "\n\n"
             + text.Get(language, "Account") + ": @" + username + "\n"
             + text.Get(language, "Network") + ": " + network.DisplayName + "\n"
-            + text.Get(language, "Launchpad") + ": " + launchpad.DisplayName;
+            + text.Get(language, "Launchpad") + ": " + launchpad.DisplayName
+            + (anchor == null ? string.Empty : "\n" + text.Get(language, "StockAnchor") + ": " + anchor);
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
 }

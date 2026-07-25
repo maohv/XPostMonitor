@@ -5,6 +5,7 @@ using XPostMonitor.Dtos;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
+using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
 using XPostMonitor.Services.Wallets;
@@ -18,6 +19,7 @@ public sealed class TokenCreationService : BackgroundService
     private readonly TokenPreviewService tokenPreviewService;
     private readonly FourMemeClient fourMemeClient;
     private readonly DyorStableClient dyorStableClient;
+    private readonly LongRobinhoodClient longRobinhoodClient;
     private readonly EvmWalletService evmWalletService;
     private readonly TelegramApiClient telegramApi;
     private readonly ILogger<TokenCreationService> logger;
@@ -26,13 +28,15 @@ public sealed class TokenCreationService : BackgroundService
     private readonly ConcurrentDictionary<string, byte> manualJobs = new();
 
     public TokenCreationService(TokenSettingsService tokenSettings, TokenPreviewService tokenPreviewService,
-        FourMemeClient fourMemeClient, DyorStableClient dyorStableClient, EvmWalletService evmWalletService,
-        TelegramApiClient telegramApi, BotTextService text, ILogger<TokenCreationService> logger)
+        FourMemeClient fourMemeClient, DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient,
+        EvmWalletService evmWalletService, TelegramApiClient telegramApi, BotTextService text,
+        ILogger<TokenCreationService> logger)
     {
         this.tokenSettings = tokenSettings;
         this.tokenPreviewService = tokenPreviewService;
         this.fourMemeClient = fourMemeClient;
         this.dyorStableClient = dyorStableClient;
+        this.longRobinhoodClient = longRobinhoodClient;
         this.evmWalletService = evmWalletService;
         this.telegramApi = telegramApi;
         this.text = text;
@@ -40,19 +44,19 @@ public sealed class TokenCreationService : BackgroundService
     }
 
     public ValueTask QueueAsync(long chatId, string postId, string postText, string? sourceLanguage,
-        string? photoUrl, string postUrl, string chain, string launchpad, bool useOriginalImage, string language,
-        DateTimeOffset receivedAt, CancellationToken cancellationToken)
+        string? photoUrl, string postUrl, string chain, string launchpad, string? anchor, bool useOriginalImage,
+        string language, DateTimeOffset receivedAt, CancellationToken cancellationToken)
     {
         return queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, postText, sourceLanguage, photoUrl,
-            postUrl, chain, launchpad, useOriginalImage, BotTextService.Normalize(language), receivedAt, false, null),
-            cancellationToken);
+            postUrl, chain, launchpad, anchor, useOriginalImage, BotTextService.Normalize(language), receivedAt,
+            false, null), cancellationToken);
     }
 
     public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string postText,
-        string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string language,
-        CancellationToken cancellationToken)
+        string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string? anchor,
+        string language, CancellationToken cancellationToken)
     {
-        string jobKey = chatId + ":" + postId + ":" + chain + ":" + launchpad;
+        string jobKey = chatId + ":" + postId + ":" + chain + ":" + launchpad + ":" + anchor;
         if (!manualJobs.TryAdd(jobKey, 0))
         {
             return false;
@@ -61,7 +65,7 @@ public sealed class TokenCreationService : BackgroundService
         try
         {
             await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, postText, sourceLanguage,
-                photoUrl, postUrl, chain, launchpad, !string.IsNullOrWhiteSpace(photoUrl),
+                photoUrl, postUrl, chain, launchpad, anchor, !string.IsNullOrWhiteSpace(photoUrl),
                 BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey), cancellationToken);
             return true;
         }
@@ -104,7 +108,7 @@ public sealed class TokenCreationService : BackgroundService
 
     private async Task CreateTokenAsync(TokenCreationRequest request, CancellationToken cancellationToken)
     {
-        if (!LaunchpadCatalog.IsValid(request.Chain, request.Launchpad))
+        if (!LaunchpadCatalog.IsValidRoute(request.Chain, request.Launchpad, request.Anchor))
         {
             throw new InvalidOperationException("Launchpad is not integrated yet.");
         }
@@ -135,9 +139,9 @@ public sealed class TokenCreationService : BackgroundService
         string aiPostText = AddSourceLanguage(request.PostText, request.SourceLanguage);
         TokenPreviewDto preview = request.UseOriginalImage
             ? await tokenPreviewService.CreateWithOriginalImageAsync(aiPostText, request.PhotoUrl,
-                request.ReceivedAt, request.Chain, cancellationToken)
+                request.ReceivedAt, request.Chain, !request.IsManual, cancellationToken)
             : await tokenPreviewService.CreateAsync(aiPostText, request.PhotoUrl,
-                request.ReceivedAt, request.Chain, cancellationToken);
+                request.ReceivedAt, request.Chain, !request.IsManual, cancellationToken);
         if (preview.IsExpired)
         {
             await telegramApi.SendMessageAsync(request.ChatId,
@@ -146,7 +150,7 @@ public sealed class TokenCreationService : BackgroundService
         }
 
         TokenResult result = await CreateOnLaunchpadAsync(request, wallet, preview, settings.BuyAmount,
-            cancellationToken);
+            settings.SlippagePercent, cancellationToken);
         string gas = result.EstimatedGas?.ToString() ?? text.Get(request.Language, "DryRunGasSkipped");
         string balanceStatus = text.Get(request.Language,
             result.HasEnoughBalance ? "DryRunBalanceEnough" : "DryRunBalanceLow");
@@ -155,6 +159,10 @@ public sealed class TokenCreationService : BackgroundService
                 preview.Draft.Symbol, settings.BuyAmount, network.Currency, gas, balanceStatus)
             : text.Get(request.Language, "TokenSubmitted", preview.Draft.Name,
                 preview.Draft.Symbol, request.Chain, request.Launchpad);
+        if (request.Launchpad == "long")
+        {
+            caption += "\n" + text.Get(request.Language, "StockAnchor") + ": " + request.Anchor;
+        }
         if (!string.IsNullOrWhiteSpace(result.TransactionHash))
         {
             caption += "\n" + text.Get(request.Language, "Transaction") + ": " + result.TransactionHash;
@@ -171,7 +179,7 @@ public sealed class TokenCreationService : BackgroundService
     }
 
     private async Task<TokenResult> CreateOnLaunchpadAsync(TokenCreationRequest request,
-        EvmWalletCredentials wallet, TokenPreviewDto preview, decimal buyAmount,
+        EvmWalletCredentials wallet, TokenPreviewDto preview, decimal buyAmount, decimal slippagePercent,
         CancellationToken cancellationToken)
     {
         if (request.Launchpad == "fourmeme")
@@ -184,12 +192,23 @@ public sealed class TokenCreationService : BackgroundService
                 result.HasEnoughBalance, result.TokenAddress);
         }
 
-        DyorStableTokenRequest dyorRequest = new DyorStableTokenRequest(preview.Draft.Name,
-            preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount);
-        DyorStableTokenResult dyorResult = await dyorStableClient.CreateTokenAsync(wallet, dyorRequest,
+        if (request.Launchpad == "dyorswap")
+        {
+            DyorStableTokenRequest dyorRequest = new DyorStableTokenRequest(preview.Draft.Name,
+                preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount);
+            DyorStableTokenResult dyorResult = await dyorStableClient.CreateTokenAsync(wallet, dyorRequest,
+                cancellationToken);
+            return new TokenResult(dyorResult.TransactionHash, dyorResult.EstimatedGas, dyorResult.IsDryRun,
+                dyorResult.HasEnoughBalance, dyorResult.TokenAddress);
+        }
+
+        LongRobinhoodTokenRequest longRequest = new LongRobinhoodTokenRequest(preview.Draft.Name,
+            preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, request.Anchor!,
+            buyAmount, slippagePercent);
+        LongRobinhoodTokenResult longResult = await longRobinhoodClient.CreateTokenAsync(wallet, longRequest,
             cancellationToken);
-        return new TokenResult(dyorResult.TransactionHash, dyorResult.EstimatedGas, dyorResult.IsDryRun,
-            dyorResult.HasEnoughBalance, dyorResult.TokenAddress);
+        return new TokenResult(longResult.TransactionHash, longResult.EstimatedGas, longResult.IsDryRun,
+            longResult.HasEnoughBalance, longResult.TokenAddress);
     }
 
     private static string AddSourceLanguage(string postText, string? sourceLanguage)
@@ -201,7 +220,8 @@ public sealed class TokenCreationService : BackgroundService
 
     private sealed record TokenCreationRequest(long ChatId, string PostId, string PostText,
         string? SourceLanguage, string? PhotoUrl, string PostUrl, string Chain, string Launchpad,
-        bool UseOriginalImage, string Language, DateTimeOffset ReceivedAt, bool IsManual, string? ManualJobKey);
+        string? Anchor, bool UseOriginalImage, string Language, DateTimeOffset ReceivedAt, bool IsManual,
+        string? ManualJobKey);
 
     private sealed record TokenResult(string? TransactionHash, BigInteger? EstimatedGas, bool IsDryRun,
         bool HasEnoughBalance, string? TokenAddress);

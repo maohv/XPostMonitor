@@ -37,6 +37,12 @@ public sealed class TokenPreviewService
     public async Task<TokenPreviewDto> CreateAsync(string? postText, string? imageUrl, DateTimeOffset receivedAt,
         string? chain, CancellationToken cancellationToken)
     {
+        return await CreateAsync(postText, imageUrl, receivedAt, chain, true, cancellationToken);
+    }
+
+    public async Task<TokenPreviewDto> CreateAsync(string? postText, string? imageUrl, DateTimeOffset receivedAt,
+        string? chain, bool expiresAfterTenSeconds, CancellationToken cancellationToken)
+    {
         TimeSpan age = DateTimeOffset.UtcNow - receivedAt;
         if (age < TimeSpan.Zero)
         {
@@ -44,13 +50,16 @@ public sealed class TokenPreviewService
         }
 
         TimeSpan remainingTime = MaxPreparationTime - age;
-        if (remainingTime <= TimeSpan.Zero)
+        if (expiresAfterTenSeconds && remainingTime <= TimeSpan.Zero)
         {
             return CreateExpiredResult(receivedAt, imageUrl);
         }
 
         using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(remainingTime);
+        if (expiresAfterTenSeconds)
+        {
+            deadline.CancelAfter(remainingTime);
+        }
 
         string? imageStyle = GetChainImageStyle(chain);
         Task<(TokenDraftDto Draft, double Seconds)> metadataTask = CreateMetadataAsync(postText, imageUrl,
@@ -58,7 +67,8 @@ public sealed class TokenPreviewService
 
         if (string.IsNullOrWhiteSpace(imageUrl))
         {
-            return await CreateFromTextAsync(metadataTask, receivedAt, imageStyle, deadline, cancellationToken);
+            return await CreateFromTextAsync(metadataTask, receivedAt, imageStyle, deadline,
+                expiresAfterTenSeconds, cancellationToken);
         }
 
         Task<(FluxImageDto Image, double Seconds)> imageTask = CreateImageAsync(postText, imageUrl, imageStyle,
@@ -68,7 +78,7 @@ public sealed class TokenPreviewService
         {
             await Task.WhenAll(metadataTask, imageTask);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (expiresAfterTenSeconds && !cancellationToken.IsCancellationRequested)
         {
             return CreateExpiredResult(receivedAt, imageUrl);
         }
@@ -78,7 +88,7 @@ public sealed class TokenPreviewService
             throw;
         }
 
-        if (DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
+        if (expiresAfterTenSeconds && DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
         {
             return CreateExpiredResult(receivedAt, imageUrl);
         }
@@ -108,19 +118,30 @@ public sealed class TokenPreviewService
     public async Task<TokenPreviewDto> CreateWithOriginalImageAsync(string? postText, string? imageUrl,
         DateTimeOffset receivedAt, string? chain, CancellationToken cancellationToken)
     {
+        return await CreateWithOriginalImageAsync(postText, imageUrl, receivedAt, chain, true,
+            cancellationToken);
+    }
+
+    public async Task<TokenPreviewDto> CreateWithOriginalImageAsync(string? postText, string? imageUrl,
+        DateTimeOffset receivedAt, string? chain, bool expiresAfterTenSeconds,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(imageUrl))
         {
             throw new InvalidOperationException("X did not return the new avatar URL.");
         }
 
         TimeSpan remainingTime = MaxPreparationTime - (DateTimeOffset.UtcNow - receivedAt);
-        if (remainingTime <= TimeSpan.Zero)
+        if (expiresAfterTenSeconds && remainingTime <= TimeSpan.Zero)
         {
             return CreateExpiredResult(receivedAt, imageUrl);
         }
 
         using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(remainingTime);
+        if (expiresAfterTenSeconds)
+        {
+            deadline.CancelAfter(remainingTime);
+        }
         Stopwatch timer = Stopwatch.StartNew();
 
         try
@@ -140,7 +161,7 @@ public sealed class TokenPreviewService
                 UsedSourceImage = true
             };
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (expiresAfterTenSeconds && !cancellationToken.IsCancellationRequested)
         {
             return CreateExpiredResult(receivedAt, imageUrl);
         }
@@ -178,7 +199,7 @@ public sealed class TokenPreviewService
 
     private async Task<TokenPreviewDto> CreateFromTextAsync(Task<(TokenDraftDto Draft, double Seconds)> metadataTask,
         DateTimeOffset receivedAt, string? imageStyle, CancellationTokenSource deadline,
-        CancellationToken cancellationToken)
+        bool expiresAfterTenSeconds, CancellationToken cancellationToken)
     {
         try
         {
@@ -188,7 +209,7 @@ public sealed class TokenPreviewService
                 deadline.Token);
             timer.Stop();
 
-            if (DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
+            if (expiresAfterTenSeconds && DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
             {
                 return CreateExpiredResult(receivedAt, null);
             }
@@ -203,7 +224,7 @@ public sealed class TokenPreviewService
                 TotalSeconds = Math.Max(0, (DateTimeOffset.UtcNow - receivedAt).TotalSeconds)
             };
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (expiresAfterTenSeconds && !cancellationToken.IsCancellationRequested)
         {
             return CreateExpiredResult(receivedAt, null);
         }

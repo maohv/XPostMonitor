@@ -6,6 +6,7 @@ public sealed class WatchlistEntry
     public string XUserId { get; set; } = string.Empty;
     public string? TokenChain { get; set; }
     public string? TokenDex { get; set; }
+    public string? TokenAnchor { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 
     public TelegramUser TelegramUser { get; set; } = null!;

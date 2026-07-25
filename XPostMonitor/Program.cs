@@ -8,6 +8,7 @@ using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
+using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.OpenAi;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
@@ -51,6 +52,14 @@ DyorStableOptions dyorStableOptions = new DyorStableOptions();
 builder.Configuration.GetSection(DyorStableOptions.SectionName).Bind(dyorStableOptions);
 builder.Services.AddSingleton(dyorStableOptions);
 
+LongRobinhoodOptions longRobinhoodOptions = new LongRobinhoodOptions();
+builder.Configuration.GetSection(LongRobinhoodOptions.SectionName).Bind(longRobinhoodOptions);
+if (string.IsNullOrWhiteSpace(longRobinhoodOptions.PinataJwt))
+{
+    longRobinhoodOptions.PinataJwt = dyorStableOptions.PinataJwt;
+}
+builder.Services.AddSingleton(longRobinhoodOptions);
+
 EvmNetworksOptions evmNetworksOptions = new EvmNetworksOptions();
 builder.Configuration.GetSection(EvmNetworksOptions.SectionName).Bind(evmNetworksOptions);
 builder.Services.AddSingleton(evmNetworksOptions);
@@ -86,6 +95,12 @@ builder.Services.AddHttpClient<FourMemeClient>(client =>
 });
 
 builder.Services.AddHttpClient<DyorStableClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.pinata.cloud/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient<LongRobinhoodClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.pinata.cloud/");
     client.Timeout = TimeSpan.FromSeconds(30);
