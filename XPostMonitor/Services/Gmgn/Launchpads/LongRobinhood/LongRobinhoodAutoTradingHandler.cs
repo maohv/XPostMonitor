@@ -2,14 +2,15 @@ using System.Numerics;
 using Nethereum.Web3;
 using XPostMonitor.Configuration;
 
-namespace XPostMonitor.Services.Gmgn.Chains;
+namespace XPostMonitor.Services.Gmgn.Launchpads.LongRobinhood;
 
-public sealed class RobinhoodAutoTradingChainHandler : IAutoTradingChainHandler
+// Long có handler riêng, không dùng chung giả định của Pons.
+public sealed class LongRobinhoodAutoTradingHandler : IAutoTradingLaunchpadHandler
 {
     private readonly GmgnClient gmgnClient;
     private readonly EvmNetworksOptions networks;
 
-    public RobinhoodAutoTradingChainHandler(GmgnClient gmgnClient, EvmNetworksOptions networks)
+    public LongRobinhoodAutoTradingHandler(GmgnClient gmgnClient, EvmNetworksOptions networks)
     {
         this.gmgnClient = gmgnClient;
         this.networks = networks;
@@ -21,8 +22,14 @@ public sealed class RobinhoodAutoTradingChainHandler : IAutoTradingChainHandler
     public bool Supports(string chain, string launchpad)
     {
         return string.Equals(chain, "robinhood", StringComparison.OrdinalIgnoreCase)
-            && (string.Equals(launchpad, "pons", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(launchpad, "long", StringComparison.OrdinalIgnoreCase));
+            && string.Equals(launchpad, "long", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public Task<GmgnTokenPosition> GetPositionAsync(GmgnCredentials credentials, string walletAddress,
+        string tokenAddress, CancellationToken cancellationToken)
+    {
+        return gmgnClient.GetTokenPositionAsync(credentials, GmgnChain, walletAddress, tokenAddress,
+            cancellationToken);
     }
 
     public Task<string> GetSellQuoteTokenAsync(GmgnCredentials credentials, string tokenAddress,

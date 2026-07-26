@@ -31,6 +31,7 @@ public sealed class TelegramBotService : BackgroundService
     private readonly string telegramToken;
     private readonly long telegramChannelId;
     private readonly bool enablePersonalBot;
+    private readonly bool enableManualTokenCreation;
     private long nextUpdateId;
 
     // Nhận các service cần dùng qua dependency injection.
@@ -62,6 +63,7 @@ public sealed class TelegramBotService : BackgroundService
         telegramToken = options.TelegramToken;
         telegramChannelId = options.TelegramChannelId;
         enablePersonalBot = options.EnablePersonalBot;
+        enableManualTokenCreation = options.EnableManualTokenCreation;
     }
 
     // Chạy liên tục cùng ứng dụng để chờ tin nhắn mới từ Telegram.
@@ -138,6 +140,13 @@ public sealed class TelegramBotService : BackgroundService
         {
             bool canUsePersonalBot = enablePersonalBot
                 && await premiumService.IsPremiumAsync(message.Chat.Id, cancellationToken);
+            if (!canUsePersonalBot && !enableManualTokenCreation)
+            {
+                // Preview có tốn phí AI/ảnh nên chỉ mở thêm cho admin Channel.
+                canUsePersonalBot = await telegramApi.IsChannelAdminAsync(telegramChannelId,
+                    message.From.Id, cancellationToken);
+            }
+
             if (!canUsePersonalBot)
             {
                 await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "PersonalClosed"),

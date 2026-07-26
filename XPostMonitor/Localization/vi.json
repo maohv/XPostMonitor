@@ -69,7 +69,13 @@
   "CheckFourMeme": "Kiểm tra FourMeme",
   "CreateEvmWallet": "Tạo ví EVM",
   "ShowPrivateKey": "Hiện private key",
-  "EvmWalletMissing": "Chưa có ví EVM. Hãy tạo ví để giao dịch trực tiếp với launchpad.",
+  "ImportEvmPrivateKey": "Nhập private key",
+  "ReplaceEvmPrivateKey": "Thay private key",
+  "SendEvmPrivateKey": "Gửi private key EVM. Bot sẽ xóa tin nhắn sau khi lưu. Key mới sẽ thay thế ví hiện tại và Auto Create sẽ được tắt.",
+  "InvalidEvmPrivateKey": "Private key EVM không hợp lệ. Bot chưa thay đổi dữ liệu.",
+  "EvmWalletImportFailed": "Không thể nhập ví EVM: {0}",
+  "EvmWalletImported": "Đã nhập và mã hóa ví EVM cho server này. Auto Create đã được tắt để an toàn.\n\nĐịa chỉ: <code>{0}</code>\n\nSố dư coin gốc:\n{1}",
+  "EvmWalletMissing": "Chưa có ví EVM. Hãy tạo ví mới hoặc nhập private key của ví có sẵn.",
   "EvmWalletReady": "Ví EVM đã sẵn sàng.\n\nĐịa chỉ: <code>{0}</code>\n\nSố dư coin gốc:\n{1}\n\nVí này dùng được trên BSC, Base, Robinhood Chain và Stable.",
   "EvmWalletCreated": "Đã tạo ví EVM.\n\nĐịa chỉ: <code>{0}</code>\nPrivate key: <tg-spoiler>{1}</tg-spoiler>\n\nSố dư coin gốc:\n{2}\n\nHãy sao lưu private key ngay. Ai có key đều có thể dùng tiền trong ví. Hãy đóng tin nhắn sau khi lưu.",
   "EvmWalletFailed": "Không thể tạo ví EVM: {0}",
@@ -102,12 +108,14 @@
   "GasNotEstimated": "chưa estimate trong bước test cấu hình",
   "DryRunBalanceEnough": "đủ tiền để chuyển sang live sau này",
   "DryRunBalanceLow": "cần nạp thêm tiền trước khi bật live",
-  "RepostTokenSkipped": "Bài đăng lại chỉ gửi thông báo và không tạo token."
+  "RepostTokenSkipped": "Bài đăng lại chỉ gửi thông báo và không tạo token.",
+  "SimpleReplyTokenSkipped": "Reply chỉ có emoji hoặc câu trả lời ngắn không tạo thêm câu chuyện, nên bot không tạo token.",
+  "ManualCreationDisabled": "Tạo token thủ công đang tắt. Hãy gửi lại link X để xem trước ảnh, tên và mã."
   ,"TradingSettingsTitle": "Auto Trading"
   ,"TakeProfitLevels": "Các mức chốt lời"
   ,"NoTakeProfitLevels": "Chưa cấu hình mức chốt lời."
   ,"ConnectGmgn": "Tạo kết nối GMGN"
-  ,"EnterApiKey": "Nhập GMGN API key"
+  ,"EnterApiKey": "Nhập hoặc thay GMGN API key"
   ,"CheckGmgn": "Kiểm tra kết nối GMGN"
   ,"AddTakeProfit": "Thêm mức chốt lời"
   ,"DeleteTakeProfit": "Xóa +{0}% -> {1}%"
@@ -116,7 +124,7 @@
   ,"ServerIpMissing": "Chưa cấu hình PublicServerIp trong phần GMGN."
   ,"ConnectionCreated": "Đã tạo khóa ký GMGN.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nThêm hai giá trị này vào GMGN, sau đó nhập API key."
   ,"GenerateFailed": "Không thể tạo khóa ký GMGN: {0}"
-  ,"SendApiKey": "Gửi GMGN API key. Bot sẽ xóa tin nhắn này sau khi lưu."
+  ,"SendApiKey": "Gửi GMGN API key. Key cũ sẽ bị thay thế và bot sẽ xóa tin nhắn này sau khi lưu."
   ,"InvalidApiKey": "GMGN API key không hợp lệ."
   ,"GenerateFirst": "Hãy tạo khóa ký GMGN trước."
   ,"ApiKeySaved": "Đã mã hóa và lưu GMGN API key."
@@ -144,6 +152,11 @@
   ,"AutoTradingCompleted": "Auto Trading đã hoàn thành cho {0}.\nĐã bán: {1}% số token ban đầu\nPNL thực nhận: ${2}"
   ,"AutoExitSold": "\u0110\u00e3 t\u1ef1 \u0111\u1ed9ng b\u00e1n h\u1ebft {0}.\nL\u00fd do: {1}\nGiao d\u1ecbch b\u00e1n: {2}"
   ,"AutoExitFailed": "KH\u1ea8N C\u1ea4P: Kh\u00f4ng th\u1ec3 t\u1ef1 b\u00e1n {0}.\nL\u00fd do: {1}\nL\u1ed7i: {2}"
+  ,"LocalAutoTradingStarted": "\u0110\u00e3 b\u1eaft \u0111\u1ea7u theo d\u00f5i ch\u1ed1t l\u1eddi t\u1ef1 \u0111\u1ed9ng Pons cho {0}:\n\n{1}"
+  ,"LocalTakeProfitFilled": "\u0110\u00e3 ch\u1ed1t l\u1eddi Pons cho {0}.\nM\u1ee5c ti\u00eau: +{1}%\n\u0110\u00e3 b\u00e1n: {2}% s\u1ed1 token ban \u0111\u1ea7u\nGiao d\u1ecbch: {3}"
+  ,"LocalAutoTradingCompleted": "Auto Trading Pons \u0111\u00e3 ho\u00e0n th\u00e0nh cho {0}.\n\u0110\u00e3 b\u00e1n: {1}% s\u1ed1 token ban \u0111\u1ea7u"
+  ,"AutoExitNoBuyer": "Kh\u00f4ng ph\u00e1t hi\u1ec7n ng\u01b0\u1eddi mua b\u00ean ngo\u00e0i trong v\u00f2ng 30 gi\u00e2y."
+  ,"AutoExitTp1Timeout": "TP1 ch\u01b0a kh\u1edbp trong v\u00f2ng 60 gi\u00e2y sau khi c\u00f3 ng\u01b0\u1eddi mua \u0111\u1ea7u ti\u00ean."
   ,"GmgnAndAutoTrading": "API GMGN & Auto Trading"
   ,"DefaultBuyAmounts": "S\u1ed1 ti\u1ec1n mua m\u1eb7c \u0111\u1ecbnh"
   ,"ChooseBuyAmountNetwork": "Ch\u1ecdn chain \u0111\u1ec3 c\u00e0i s\u1ed1 ti\u1ec1n mua ban \u0111\u1ea7u m\u1eb7c \u0111\u1ecbnh:"

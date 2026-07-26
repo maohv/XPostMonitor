@@ -60,7 +60,13 @@
   "CheckFourMeme": "检查 FourMeme",
   "CreateEvmWallet": "创建 EVM 钱包",
   "ShowPrivateKey": "显示私钥",
-  "EvmWalletMissing": "尚无 EVM 钱包。请创建钱包以直接使用 Launchpad。",
+  "ImportEvmPrivateKey": "导入私钥",
+  "ReplaceEvmPrivateKey": "更换私钥",
+  "SendEvmPrivateKey": "请发送 EVM 私钥。保存后该消息会被删除。新私钥将替换当前钱包，并关闭自动创建。",
+  "InvalidEvmPrivateKey": "EVM 私钥无效，数据未被更改。",
+  "EvmWalletImportFailed": "无法导入 EVM 钱包：{0}",
+  "EvmWalletImported": "EVM 钱包已导入并在此服务器上加密。为安全起见，自动创建已关闭。\n\n地址：<code>{0}</code>\n\n原生币余额：\n{1}",
+  "EvmWalletMissing": "尚无 EVM 钱包。请创建新钱包或导入现有钱包的私钥。",
   "EvmWalletReady": "EVM 钱包已就绪。\n\n地址：<code>{0}</code>\n\n原生币余额：\n{1}\n\n此钱包可用于 BSC、Base、Robinhood Chain 和 Stable。",
   "EvmWalletCreated": "EVM 钱包已创建。\n\n地址：<code>{0}</code>\n私钥：<tg-spoiler>{1}</tg-spoiler>\n\n原生币余额：\n{2}\n\n请立即备份私钥。任何获得私钥的人都可以使用钱包资金。保存后请关闭此消息。",
   "EvmWalletFailed": "无法创建 EVM 钱包：{0}",
@@ -93,12 +99,14 @@
   "GasNotEstimated": "本次配置测试未估算",
   "DryRunBalanceEnough": "余额足够以后切换到 Live",
   "DryRunBalanceLow": "启用 Live 前需要充值",
-  "RepostTokenSkipped": "转发只发送通知，不创建代币。"
+  "RepostTokenSkipped": "转发只发送通知，不创建代币。",
+  "SimpleReplyTokenSkipped": "该回复只有表情或未增加新故事的简短回应，因此机器人不会创建代币。",
+  "ManualCreationDisabled": "手动创建代币已关闭。请重新发送 X 链接以预览图片、名称和代码。"
   ,"TradingSettingsTitle": "自动交易"
   ,"TakeProfitLevels": "止盈级别"
   ,"NoTakeProfitLevels": "尚未设置止盈级别。"
   ,"ConnectGmgn": "创建 GMGN 连接"
-  ,"EnterApiKey": "输入 GMGN API Key"
+  ,"EnterApiKey": "输入或更换 GMGN API Key"
   ,"CheckGmgn": "检查 GMGN 连接"
   ,"AddTakeProfit": "添加止盈级别"
   ,"DeleteTakeProfit": "删除 +{0}% -> {1}%"
@@ -107,7 +115,7 @@
   ,"ServerIpMissing": "GMGN 配置中缺少 PublicServerIp。"
   ,"ConnectionCreated": "GMGN 签名密钥已创建。\n\n公钥：\n<pre>{0}</pre>\n可信 IP：<code>{1}</code>\n\n请把这两个值添加到 GMGN，然后输入 API Key。"
   ,"GenerateFailed": "无法创建 GMGN 签名密钥：{0}"
-  ,"SendApiKey": "请发送 GMGN API Key，保存后该消息会被删除。"
+  ,"SendApiKey": "请发送 GMGN API Key。现有 Key 将被替换，保存后该消息会被删除。"
   ,"InvalidApiKey": "GMGN API Key 无效。"
   ,"GenerateFirst": "请先创建 GMGN 签名密钥。"
   ,"ApiKeySaved": "GMGN API Key 已加密保存。"
@@ -133,6 +141,13 @@
   ,"TakeProfitFilled": "{0} 止盈完成。\n目标：+{1}%\n卖出：初始代币的 {2}%\n已实现 PnL：${3}\n交易：{4}"
   ,"TakeProfitFailed": "{0} 在 +{1}% 的止盈失败。"
   ,"AutoTradingCompleted": "{0} 自动交易完成。\n已卖出：初始代币的 {1}%\n已实现 PnL：${2}"
+  ,"AutoExitSold": "{0} 已完成自动退出。\n原因：{1}\n卖出交易/订单：{2}"
+  ,"AutoExitFailed": "紧急：{0} 自动退出失败。\n原因：{1}\n错误：{2}"
+  ,"LocalAutoTradingStarted": "\u5df2\u5f00\u59cb\u76d1\u63a7 {0} \u7684 Pons \u81ea\u52a8\u6b62\u76c8\uff1a\n\n{1}"
+  ,"LocalTakeProfitFilled": "{0} \u7684 Pons \u6b62\u76c8\u5df2\u5b8c\u6210\u3002\n\u76ee\u6807\uff1a+{1}%\n\u5356\u51fa\uff1a\u521d\u59cb\u4ee3\u5e01\u7684 {2}%\n\u4ea4\u6613\uff1a{3}"
+  ,"LocalAutoTradingCompleted": "{0} \u7684 Pons \u81ea\u52a8\u4ea4\u6613\u5df2\u5b8c\u6210\u3002\n\u5df2\u5356\u51fa\uff1a\u521d\u59cb\u4ee3\u5e01\u7684 {1}%"
+  ,"AutoExitNoBuyer": "30 \u79d2\u5185\u672a\u68c0\u6d4b\u5230\u5916\u90e8\u4e70\u5bb6\u3002"
+  ,"AutoExitTp1Timeout": "\u9996\u4e2a\u4e70\u5bb6\u51fa\u73b0\u540e 60 \u79d2\u5185 TP1 \u672a\u6210\u4ea4\u3002"
   ,"GmgnAndAutoTrading": "GMGN API \u4e0e\u81ea\u52a8\u4ea4\u6613"
   ,"DefaultBuyAmounts": "\u9ed8\u8ba4\u4e70\u5165\u91d1\u989d"
   ,"ChooseBuyAmountNetwork": "\u9009\u62e9\u7f51\u7edc\u5e76\u8bbe\u7f6e\u9ed8\u8ba4\u521d\u59cb\u4e70\u5165\u91d1\u989d\uff1a"

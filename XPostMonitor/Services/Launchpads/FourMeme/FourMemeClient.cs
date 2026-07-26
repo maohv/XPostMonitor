@@ -253,7 +253,7 @@ public sealed class FourMemeClient
             ["dexType"] = "PANCAKE_SWAP",
             ["rushMode"] = false,
             ["onlyMPC"] = false,
-            ["feePlan"] = false,
+            ["feePlan"] = request.CreatorTaxPercent > 0,
             ["twitterUrl"] = request.PostUrl
         };
 
@@ -262,6 +262,8 @@ public sealed class FourMemeClient
             body["tokenTaxInfo"] = new
             {
                 feeRate = request.CreatorTaxPercent,
+                // FourMeme yêu cầu gửi riêng phí mua và phí bán.
+                feeRateSell = request.CreatorTaxPercent,
                 burnRate = 0,
                 divideRate = 0,
                 liquidityRate = 0,

@@ -111,7 +111,13 @@
   "CheckFourMeme": "Check FourMeme",
   "CreateEvmWallet": "Create EVM wallet",
   "ShowPrivateKey": "Show private key",
-  "EvmWalletMissing": "No EVM wallet yet. Create one for direct launchpad transactions.",
+  "ImportEvmPrivateKey": "Import private key",
+  "ReplaceEvmPrivateKey": "Replace private key",
+  "SendEvmPrivateKey": "Send the EVM private key. This message will be deleted after it is saved. Importing a key replaces the current wallet and disables Auto Create.",
+  "InvalidEvmPrivateKey": "The EVM private key is invalid. Nothing was changed.",
+  "EvmWalletImportFailed": "Could not import the EVM wallet: {0}",
+  "EvmWalletImported": "EVM wallet imported and encrypted for this server. Auto Create was disabled for safety.\n\nAddress: <code>{0}</code>\n\nNative balances:\n{1}",
+  "EvmWalletMissing": "No EVM wallet yet. Create one or import an existing private key.",
   "EvmWalletReady": "EVM wallet ready.\n\nAddress: <code>{0}</code>\n\nNative balances:\n{1}\n\nThis wallet works on BSC, Base, Robinhood Chain and Stable.",
   "EvmWalletCreated": "EVM wallet created.\n\nAddress: <code>{0}</code>\nPrivate key: <tg-spoiler>{1}</tg-spoiler>\n\nNative balances:\n{2}\n\nBack up the private key now. Anyone with it can spend this wallet's funds. Close this message after saving it.",
   "EvmWalletFailed": "Could not create the EVM wallet: {0}",
@@ -144,12 +150,14 @@
   "GasNotEstimated": "not estimated in this setup test",
   "DryRunBalanceEnough": "enough for a future live transaction",
   "DryRunBalanceLow": "needs more balance before live mode",
-  "RepostTokenSkipped": "Reposts only send notifications and do not create tokens."
+  "RepostTokenSkipped": "Reposts only send notifications and do not create tokens.",
+  "SimpleReplyTokenSkipped": "This reply only contains emoji or a short reaction that adds no story, so no token was created.",
+  "ManualCreationDisabled": "Manual token creation is disabled. Send the X link again to preview its image, name, and symbol."
   ,"TradingSettingsTitle": "Auto Trading"
   ,"TakeProfitLevels": "Take-profit levels"
   ,"NoTakeProfitLevels": "No take-profit levels configured."
   ,"ConnectGmgn": "Create GMGN connection"
-  ,"EnterApiKey": "Enter GMGN API key"
+  ,"EnterApiKey": "Enter or replace GMGN API key"
   ,"CheckGmgn": "Check GMGN connection"
   ,"AddTakeProfit": "Add take-profit level"
   ,"DeleteTakeProfit": "Delete +{0}% -> {1}%"
@@ -158,7 +166,7 @@
   ,"ServerIpMissing": "PublicServerIp is missing from GMGN configuration."
   ,"ConnectionCreated": "GMGN signing key created.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nAdd both values to GMGN, then enter your API key."
   ,"GenerateFailed": "Could not create the GMGN signing key: {0}"
-  ,"SendApiKey": "Send your GMGN API key. This message will be deleted after it is saved."
+  ,"SendApiKey": "Send your GMGN API key. The existing key will be replaced, and this message will be deleted after it is saved."
   ,"InvalidApiKey": "Invalid GMGN API key."
   ,"GenerateFirst": "Create the GMGN signing key first."
   ,"ApiKeySaved": "GMGN API key saved and encrypted."
@@ -186,6 +194,11 @@
   ,"AutoTradingCompleted": "Auto Trading completed for {0}.\nSold: {1}% of initial tokens\nRealized PnL: ${2}"
   ,"AutoExitSold": "Auto exit completed for {0}.\nReason: {1}\nSell transaction/order: {2}"
   ,"AutoExitFailed": "URGENT: Auto exit failed for {0}.\nReason: {1}\nError: {2}"
+  ,"LocalAutoTradingStarted": "Pons automatic take-profit monitoring started for {0}:\n\n{1}"
+  ,"LocalTakeProfitFilled": "Pons take profit completed for {0}.\nTarget: +{1}%\nSold: {2}% of initial tokens\nTransaction: {3}"
+  ,"LocalAutoTradingCompleted": "Pons Auto Trading completed for {0}.\nSold: {1}% of initial tokens"
+  ,"AutoExitNoBuyer": "No external buyer was detected within 30 seconds."
+  ,"AutoExitTp1Timeout": "TP1 was not filled within 60 seconds after the first buyer."
   ,"GmgnAndAutoTrading": "GMGN API & Auto Trading"
   ,"DefaultBuyAmounts": "Default Buy Amounts"
   ,"ChooseBuyAmountNetwork": "Choose a network to set its default initial buy amount:"

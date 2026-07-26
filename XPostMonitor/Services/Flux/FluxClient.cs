@@ -11,8 +11,10 @@ public sealed class FluxClient
     private const string MemeTokenStyle = " Render it in a polished internet-meme illustration style with expressive "
         + "shapes, bold clean outlines, vivid flat colors, soft simple shading, playful energy, and a crisp sticker-like finish. "
         + "Keep the subjects and composition dictated by the post. Do not force a circular badge, mascot, animal, or logo layout. "
-        + "Keep strong readability at tiny thumbnail size. Draw no text by default. If the prompt explicitly quotes one short visible "
-        + "phrase or number, render only that quoted text and copy every character exactly without adding or changing anything.";
+        + "Keep strong readability at tiny thumbnail size. The image must be completely text-free. Ignore any earlier request to "
+        + "render text. Draw no letters, words, numbers, emoji glyphs, captions, labels, speech bubbles, signs, documents, pages, "
+        + "whiteboards, screens, user interfaces, writing, or pseudo-text. Express the idea only through visual subjects, actions, "
+        + "objects, expressions, colors, and composition.";
 
     private readonly HttpClient httpClient;
     private readonly FluxOptions options;
@@ -88,7 +90,7 @@ public sealed class FluxClient
             ? string.Empty
             : " Apply this selected launch-chain palette: " + chainImageStyle;
         string prompt = imagePrompt + style + MemeTokenStyle + " "
-            + "No URLs, logos, trademarks, token symbols, extra text, or watermark.";
+            + "No URLs, logos, trademarks, token symbols, or watermark.";
         return await GenerateAsync(prompt, null, cancellationToken);
     }
 
@@ -130,13 +132,13 @@ public sealed class FluxClient
                 + "Visualize the post-specific hook with its concrete subjects and action. Do not use a broad generic theme. "
                 + style
                 + MemeTokenStyle
-                + " No URLs, logos, trademarks, token symbols, extra text, coins, currency signs, or watermark."
+                + " No URLs, logos, trademarks, token symbols, coins, currency signs, or watermark."
             : "Use the input image as the primary reference for a meme-token illustrated adaptation. "
                 + "Preserve its main subjects, action, mood, and recognizable composition. "
                 + "Use the post only as context: " + cleanPostText + ". "
                 + style
                 + MemeTokenStyle
-                + " No URLs, logos, trademarks, extra text, coins, currency signs, or emblems.";
+                + " No URLs, logos, trademarks, coins, currency signs, or emblems.";
 
         return await GenerateAsync(prompt, imageUrl, cancellationToken);
     }

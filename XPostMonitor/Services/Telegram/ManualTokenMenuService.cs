@@ -23,12 +23,15 @@ public sealed class ManualTokenMenuService
     private readonly LongRobinhoodOptions longRobinhoodOptions;
     private readonly PonsRobinhoodOptions ponsRobinhoodOptions;
     private readonly BotTextService text;
+    private readonly TokenPreviewService tokenPreviewService;
+    private readonly bool enableManualTokenCreation;
 
     public ManualTokenMenuService(TelegramApiClient telegramApi, XApiClient xApiClient,
         TokenSettingsService tokenSettings, TokenCreationService tokenCreation,
         EvmWalletService evmWalletService, FourMemeOptions fourMemeOptions,
         DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions,
-        PonsRobinhoodOptions ponsRobinhoodOptions, BotTextService text)
+        PonsRobinhoodOptions ponsRobinhoodOptions, BotTextService text,
+        TokenPreviewService tokenPreviewService, BotOptions botOptions)
     {
         this.telegramApi = telegramApi;
         this.xApiClient = xApiClient;
@@ -40,6 +43,8 @@ public sealed class ManualTokenMenuService
         this.longRobinhoodOptions = longRobinhoodOptions;
         this.ponsRobinhoodOptions = ponsRobinhoodOptions;
         this.text = text;
+        this.tokenPreviewService = tokenPreviewService;
+        enableManualTokenCreation = botOptions.EnableManualTokenCreation;
     }
 
     public async Task StartAsync(long chatId, string link, string language, CancellationToken cancellationToken)
@@ -48,6 +53,13 @@ public sealed class ManualTokenMenuService
         if (postId == null)
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "InvalidXLink"), cancellationToken);
+            return;
+        }
+
+        // Khi tắt tạo thủ công, link X chỉ dùng để xem trước ảnh, tên và mã.
+        if (!enableManualTokenCreation)
+        {
+            await PreviewAsync(chatId, postId, language, cancellationToken);
             return;
         }
 
@@ -65,6 +77,14 @@ public sealed class ManualTokenMenuService
         CancellationToken cancellationToken)
     {
         await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+
+        // Chặn cả nút cũ còn sót lại để chắc chắn không thể tạo token thủ công.
+        if (!enableManualTokenCreation)
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualCreationDisabled"),
+                cancellationToken);
+            return;
+        }
 
         if (data == "manual:cancel")
         {
@@ -245,9 +265,14 @@ public sealed class ManualTokenMenuService
             }
 
             XNotificationContent content = XNotificationMessage.Create("x", response, text, language);
-            string tokenText = referenceType == "replied_to"
-                ? "[POST_TYPE=reply]\n" + post.Text
-                : post.Text;
+            if (!TokenPostContext.IsMeaningfulReply(response, content.OwnPhotoUrl))
+            {
+                await telegramApi.SendMessageAsync(chatId, text.Get(language, "SimpleReplyTokenSkipped"),
+                    cancellationToken);
+                return;
+            }
+
+            string tokenText = TokenPostContext.BuildAiInput(response);
             bool queued = await tokenCreation.QueueManualAsync(chatId, postId, tokenText,
                 post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, creatorTaxPercent, language,
                 cancellationToken);
@@ -267,6 +292,63 @@ public sealed class ManualTokenMenuService
             await telegramApi.SendMessageAsync(chatId,
                 text.Get(language, "ManualPostFailed", exception.Message), cancellationToken);
         }
+    }
+
+    // Lấy dữ liệu thật từ link X rồi chạy phần tạo ảnh và metadata, không gọi launchpad.
+    private async Task PreviewAsync(long chatId, string postId, string language,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            XStreamPostResponse response = await xApiClient.GetPostAsync(postId, cancellationToken);
+            XPost post = response.Data!;
+            string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
+            if (referenceType == "retweeted")
+            {
+                await telegramApi.SendMessageAsync(chatId, text.Get(language, "RepostTokenSkipped"),
+                    cancellationToken);
+                return;
+            }
+
+            XNotificationContent content = XNotificationMessage.Create("x", response, text, language);
+            if (!TokenPostContext.IsMeaningfulReply(response, content.OwnPhotoUrl))
+            {
+                await telegramApi.SendMessageAsync(chatId, text.Get(language, "SimpleReplyTokenSkipped"),
+                    cancellationToken);
+                return;
+            }
+
+            string tokenText = TokenPostContext.BuildAiInput(response);
+            string aiText = AddSourceLanguage(tokenText, post.Language);
+            DateTimeOffset startedAt = DateTimeOffset.UtcNow;
+
+            // Post có ảnh riêng dùng nguyên ảnh; Post chỉ có chữ thì tạo ảnh mới bằng Flux.
+            TokenPreviewDto preview = content.OwnPhotoUrl != null
+                ? await tokenPreviewService.CreateWithOriginalImageAsync(aiText, content.OwnPhotoUrl,
+                    startedAt, null, false, cancellationToken)
+                : await tokenPreviewService.CreateAsync(aiText, null, startedAt, null, false,
+                    cancellationToken);
+
+            string source = text.Get(language, preview.UsedSourceImage ? "PostImage" : "PostText");
+            string caption = text.Get(language, "PreviewCaption", preview.Draft.Name, preview.Draft.Symbol,
+                preview.Draft.Description, source, preview.OpenAiSeconds.ToString("0.00"),
+                preview.FluxSeconds.ToString("0.00"), preview.TotalSeconds.ToString("0.00"));
+
+            await telegramApi.SendPhotoAsync(chatId, preview.Image, caption, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await telegramApi.SendMessageAsync(chatId,
+                text.Get(language, "TokenPreviewFailed", exception.Message), cancellationToken);
+        }
+    }
+
+    // Gửi ngôn ngữ do X nhận diện để AI không tự dịch tên token.
+    private static string AddSourceLanguage(string postText, string? sourceLanguage)
+    {
+        return string.IsNullOrWhiteSpace(sourceLanguage)
+            ? postText
+            : "[SOURCE_LANGUAGE=" + sourceLanguage.ToLowerInvariant() + "]\n" + postText;
     }
 
     private bool IsLive(string launchpad)

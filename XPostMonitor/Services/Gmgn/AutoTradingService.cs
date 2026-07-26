@@ -8,7 +8,7 @@ using Nethereum.Web3;
 using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Models;
-using XPostMonitor.Services.Gmgn.Chains;
+using XPostMonitor.Services.Gmgn.Launchpads;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
@@ -25,20 +25,20 @@ public sealed class AutoTradingService : BackgroundService
     private readonly IServiceScopeFactory scopeFactory;
     private readonly AutoTradingSettingsService settings;
     private readonly GmgnClient gmgnClient;
-    private readonly IReadOnlyList<IAutoTradingChainHandler> chainHandlers;
+    private readonly IReadOnlyList<IAutoTradingLaunchpadHandler> launchpadHandlers;
     private readonly TelegramApiClient telegramApi;
     private readonly BotTextService text;
     private readonly ILogger<AutoTradingService> logger;
     private readonly Channel<AutoTradingRequest> queue = Channel.CreateUnbounded<AutoTradingRequest>();
 
     public AutoTradingService(IServiceScopeFactory scopeFactory, AutoTradingSettingsService settings,
-        GmgnClient gmgnClient, IEnumerable<IAutoTradingChainHandler> chainHandlers,
+        GmgnClient gmgnClient, IEnumerable<IAutoTradingLaunchpadHandler> launchpadHandlers,
         TelegramApiClient telegramApi, BotTextService text, ILogger<AutoTradingService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.settings = settings;
         this.gmgnClient = gmgnClient;
-        this.chainHandlers = chainHandlers.ToList();
+        this.launchpadHandlers = launchpadHandlers.ToList();
         this.telegramApi = telegramApi;
         this.text = text;
         this.logger = logger;
@@ -118,13 +118,14 @@ public sealed class AutoTradingService : BackgroundService
         {
             preparationCancellation.Cancel();
             await ObservePreparationAsync(preparationTask, request);
-            await ExitPositionAsync(request, GetAutoExitReason(false, false)!, cancellationToken);
+            await ExitPositionAsync(request, GetAutoExitReason(request.Language, false, false)!,
+                cancellationToken);
             return;
         }
 
         await Task.Delay(TimeSpan.FromSeconds(60), cancellationToken);
         bool firstTakeProfitFilled = await IsFirstTakeProfitFilledAsync(request, cancellationToken);
-        string? exitReason = GetAutoExitReason(true, firstTakeProfitFilled);
+        string? exitReason = GetAutoExitReason(request.Language, true, firstTakeProfitFilled);
         if (exitReason == null)
         {
             await preparationTask;
@@ -136,22 +137,23 @@ public sealed class AutoTradingService : BackgroundService
         await ExitPositionAsync(request, exitReason, cancellationToken);
     }
 
-    private static string? GetAutoExitReason(bool hasExternalBuyer, bool firstTakeProfitFilled)
+    private string? GetAutoExitReason(string language, bool hasExternalBuyer,
+        bool firstTakeProfitFilled)
     {
         if (!hasExternalBuyer)
         {
-            return "No external buyer within 30 seconds.";
+            return text.Get(language, "AutoExitNoBuyer");
         }
 
         return firstTakeProfitFilled
             ? null
-            : "TP1 was not filled within 60 seconds after the first buyer.";
+            : text.Get(language, "AutoExitTp1Timeout");
     }
 
     private async Task<DateTimeOffset?> WaitForExternalBuyAsync(AutoTradingRequest request,
         TimeSpan timeout, CancellationToken cancellationToken)
     {
-        Web3 web3 = new Web3(GetChainHandler(request).RpcUrl);
+        Web3 web3 = new Web3(GetLaunchpadHandler(request).RpcUrl);
         BigInteger nextBlock = await GetMonitoringStartBlockAsync(web3, request.LaunchTransactionHash,
             cancellationToken);
         DateTimeOffset deadline = DateTimeOffset.UtcNow.Add(timeout);
@@ -250,6 +252,11 @@ public sealed class AutoTradingService : BackgroundService
         {
             return true;
         }
+        if (firstOrder.GmgnOrderId.StartsWith("local:", StringComparison.Ordinal))
+        {
+            // TP của Pons được bot theo dõi trong database, không tồn tại trong danh sách order GMGN.
+            return false;
+        }
 
         GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId, cancellationToken);
         if (credentials == null)
@@ -266,7 +273,7 @@ public sealed class AutoTradingService : BackgroundService
     {
         try
         {
-            IAutoTradingChainHandler handler = GetChainHandler(request);
+            IAutoTradingLaunchpadHandler handler = GetLaunchpadHandler(request);
             GmgnCredentials credentials = await settings.GetCredentialsAsync(request.ChatId,
                 cancellationToken) ?? throw new InvalidOperationException("GMGN is not connected.");
             string quoteToken = await handler.GetSellQuoteTokenAsync(credentials, request.TokenAddress,
@@ -318,6 +325,14 @@ public sealed class AutoTradingService : BackgroundService
 
         foreach (AutoTradeOrder order in trade.Orders.Where(item => item.Status == "open"))
         {
+            if (order.GmgnOrderId.StartsWith("local:", StringComparison.Ordinal))
+            {
+                order.Status = "cancelled";
+                order.ClosedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+                continue;
+            }
+
             try
             {
                 await gmgnClient.CancelTakeProfitAsync(credentials, chain, trade.WalletAddress,
@@ -372,16 +387,16 @@ public sealed class AutoTradingService : BackgroundService
         }
     }
 
-    private IAutoTradingChainHandler GetChainHandler(AutoTradingRequest request)
+    private IAutoTradingLaunchpadHandler GetLaunchpadHandler(AutoTradingRequest request)
     {
-        return chainHandlers.FirstOrDefault(item => item.Supports(request.Chain, request.Launchpad))
+        return launchpadHandlers.FirstOrDefault(item => item.Supports(request.Chain, request.Launchpad))
             ?? throw new InvalidOperationException("Auto trading is not supported for " + request.Chain
                 + "/" + request.Launchpad + ".");
     }
 
     private async Task PrepareAsync(AutoTradingRequest request, CancellationToken cancellationToken)
     {
-        IAutoTradingChainHandler handler = GetChainHandler(request);
+        IAutoTradingLaunchpadHandler handler = GetLaunchpadHandler(request);
 
         GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId, cancellationToken);
         List<TakeProfitSetting> levels = await settings.GetTakeProfitsAsync(request.ChatId, cancellationToken);
@@ -394,8 +409,8 @@ public sealed class AutoTradingService : BackgroundService
             throw new InvalidOperationException("Add at least one take-profit level in /settings first.");
         }
 
-        GmgnTokenPosition position = await gmgnClient.GetTokenPositionAsync(credentials, handler.GmgnChain,
-            request.WalletAddress, request.TokenAddress, cancellationToken);
+        GmgnTokenPosition position = await handler.GetPositionAsync(credentials, request.WalletAddress,
+            request.TokenAddress, cancellationToken);
         logger.LogInformation("[GMGN] Position found for {Symbol}. Entry price: {EntryPrice}.",
             request.TokenSymbol, position.EntryPrice);
         await AutoTradingDiagnosticLog.WriteAsync("POSITION FOUND | Symbol=" + request.TokenSymbol
@@ -426,6 +441,13 @@ public sealed class AutoTradingService : BackgroundService
                 request.TokenAddress, cancellationToken);
             await AutoTradingDiagnosticLog.WriteAsync("TP BALANCE | Symbol=" + request.TokenSymbol
                 + " | Raw=" + tokenBalance);
+            if (handler is ILocalTakeProfitHandler localHandler)
+            {
+                await CreateLocalTakeProfitsAsync(request, trade, levels, tokenBalance, localHandler, db,
+                    cancellationToken);
+                return;
+            }
+
             decimal? gasPriceGwei = await handler.GetTakeProfitGasPriceGweiAsync(credentials,
                 cancellationToken);
             await AutoTradingDiagnosticLog.WriteAsync("TP GAS | Symbol=" + request.TokenSymbol
@@ -494,6 +516,52 @@ public sealed class AutoTradingService : BackgroundService
         }
     }
 
+    // Pons không tạo order chờ trên GMGN. Bot lưu các mức TP và tự gọi GMGN swap khi đạt giá.
+    private async Task CreateLocalTakeProfitsAsync(AutoTradingRequest request, AutoTrade trade,
+        List<TakeProfitSetting> levels, BigInteger initialBalance, ILocalTakeProfitHandler handler,
+        AppDbContext db, CancellationToken cancellationToken)
+    {
+        if (initialBalance <= 0)
+        {
+            throw new InvalidOperationException("The Pons launch wallet has no token balance.");
+        }
+
+        for (int index = 0; index < levels.Count; index++)
+        {
+            TakeProfitSetting level = levels[index];
+            int sellBasisPoints = decimal.ToInt32(level.SellPercent * 100m);
+            BigInteger amountIn = initialBalance * sellBasisPoints / 10_000;
+            if (amountIn <= 0)
+            {
+                throw new InvalidOperationException("Token balance is too small for TP" + (index + 1) + ".");
+            }
+
+            decimal targetPrice = trade.EntryPrice * (1m + level.ProfitPercent / 100m);
+            db.AutoTradeOrders.Add(new AutoTradeOrder
+            {
+                AutoTradeId = trade.Id,
+                GmgnOrderId = handler.LocalOrderPrefix + trade.Id + ":" + index + ":" + amountIn,
+                ProfitPercent = level.ProfitPercent,
+                SellPercent = level.SellPercent,
+                TargetPrice = targetPrice,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await AutoTradingDiagnosticLog.WriteAsync("PONS TP WATCH | Symbol=" + request.TokenSymbol
+                + " | Level=" + (index + 1) + " | Profit=" + level.ProfitPercent
+                + " | Sell=" + level.SellPercent + " | TargetWETH="
+                + targetPrice.ToString(CultureInfo.InvariantCulture));
+        }
+
+        trade.Status = "active";
+        await db.SaveChangesAsync(cancellationToken);
+        string levelText = string.Join("\n", levels.Select((level, index) => "TP" + (index + 1)
+            + ": +" + level.ProfitPercent.ToString(CultureInfo.InvariantCulture) + "% -> "
+            + level.SellPercent.ToString(CultureInfo.InvariantCulture) + "%"));
+        await telegramApi.SendMessageAsync(request.ChatId,
+            text.Get(request.Language, "LocalAutoTradingStarted", request.TokenSymbol, levelText),
+            cancellationToken);
+    }
+
     private async Task MonitorLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -530,6 +598,13 @@ public sealed class AutoTradingService : BackgroundService
             GmgnCredentials? credentials = await settings.GetCredentialsAsync(trade.ChatId, cancellationToken);
             if (credentials == null)
             {
+                continue;
+            }
+
+            ILocalTakeProfitHandler? localHandler = FindLocalHandler(trade);
+            if (localHandler != null)
+            {
+                await MonitorLocalTakeProfitsAsync(trade, credentials, localHandler, db, cancellationToken);
                 continue;
             }
 
@@ -575,6 +650,117 @@ public sealed class AutoTradingService : BackgroundService
             }
         }
     }
+
+    // Kiểm tra giá Pons. Chỉ khi đạt TP thì mới gọi GMGN swap để bán đúng số token đã định.
+    private async Task MonitorLocalTakeProfitsAsync(AutoTrade trade, GmgnCredentials credentials,
+        ILocalTakeProfitHandler handler, AppDbContext db, CancellationToken cancellationToken)
+    {
+        decimal currentPrice = await handler.GetCurrentPriceAsync(trade.TokenAddress, cancellationToken);
+        foreach (AutoTradeOrder order in trade.Orders.Where(item => item.Status == "open")
+                     .OrderBy(item => item.ProfitPercent))
+        {
+            if (currentPrice < order.TargetPrice)
+            {
+                continue;
+            }
+
+            try
+            {
+                BigInteger plannedAmount = ReadLocalSellAmount(order.GmgnOrderId, handler.LocalOrderPrefix);
+                BigInteger currentBalance = await handler.GetTokenBalanceAsync(trade.WalletAddress,
+                    trade.TokenAddress, cancellationToken);
+                BigInteger amountToSell = BigInteger.Min(plannedAmount, currentBalance);
+                if (amountToSell <= 0)
+                {
+                    throw new InvalidOperationException("The wallet no longer has tokens for this TP.");
+                }
+
+                await AutoTradingDiagnosticLog.WriteAsync("PONS TP SELL | Symbol=" + trade.TokenSymbol
+                    + " | Profit=" + order.ProfitPercent + " | CurrentWETH="
+                    + currentPrice.ToString(CultureInfo.InvariantCulture) + " | TargetWETH="
+                    + order.TargetPrice.ToString(CultureInfo.InvariantCulture) + " | Amount=" + amountToSell);
+                string sellQuoteToken = await handler.GetSellQuoteTokenAsync(credentials, trade.TokenAddress,
+                    cancellationToken);
+                string sellReference = await gmgnClient.SellAllAsync(credentials, handler.GmgnChain,
+                    trade.WalletAddress, trade.TokenAddress, sellQuoteToken, amountToSell,
+                    await GetTradeSlippageAsync(trade.ChatId, cancellationToken), cancellationToken);
+
+                order.Status = "filled";
+                order.TransactionHash = sellReference;
+                order.ClosedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+                string language = BotTextService.Normalize(trade.TelegramUser.LanguageCode);
+                await telegramApi.SendMessageAsync(trade.ChatId,
+                    text.Get(language, "LocalTakeProfitFilled", trade.TokenSymbol, order.ProfitPercent,
+                        order.SellPercent, sellReference), cancellationToken);
+                order.NotifiedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                // Không tự retry lệnh bán không rõ trạng thái để tránh bán hai lần.
+                order.Status = "failed";
+                order.ClosedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+                logger.LogError(exception, "[Pons] TP sell failed for {TokenAddress}.", trade.TokenAddress);
+                await AutoTradingDiagnosticLog.WriteAsync("PONS TP SELL ERROR | Symbol=" + trade.TokenSymbol
+                    + " | Profit=" + order.ProfitPercent + " | " + exception);
+                string language = BotTextService.Normalize(trade.TelegramUser.LanguageCode);
+                await telegramApi.SendMessageAsync(trade.ChatId,
+                    text.Get(language, "TakeProfitFailed", trade.TokenSymbol, order.ProfitPercent),
+                    cancellationToken);
+                break;
+            }
+        }
+
+        if (trade.Orders.All(item => item.Status != "open"))
+        {
+            bool hasFailure = trade.Orders.Any(item => item.Status == "failed");
+            trade.Status = hasFailure ? "failed" : "completed";
+            trade.CompletedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            if (!hasFailure)
+            {
+                decimal soldPercent = trade.Orders.Sum(item => item.SellPercent);
+                string language = BotTextService.Normalize(trade.TelegramUser.LanguageCode);
+                await telegramApi.SendMessageAsync(trade.ChatId,
+                    text.Get(language, "LocalAutoTradingCompleted", trade.TokenSymbol, soldPercent),
+                    cancellationToken);
+            }
+        }
+    }
+
+    private ILocalTakeProfitHandler? FindLocalHandler(AutoTrade trade)
+    {
+        return launchpadHandlers.OfType<ILocalTakeProfitHandler>()
+            .FirstOrDefault(handler => trade.Orders.Any(order =>
+                order.GmgnOrderId.StartsWith(handler.LocalOrderPrefix, StringComparison.Ordinal)));
+    }
+
+    private static BigInteger ReadLocalSellAmount(string orderId, string prefix)
+    {
+        if (!orderId.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Invalid local TP order.");
+        }
+
+        string amountText = orderId[(orderId.LastIndexOf(':') + 1)..];
+        return BigInteger.TryParse(amountText, NumberStyles.None, CultureInfo.InvariantCulture,
+            out BigInteger amount) && amount > 0
+            ? amount
+            : throw new InvalidOperationException("Invalid local TP sell amount.");
+    }
+
+    private async Task<decimal> GetTradeSlippageAsync(long chatId, CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        UserChainTradingSettings? chainSettings = await db.UserChainTradingSettings
+            .AsNoTracking().FirstOrDefaultAsync(item => item.ChatId == chatId && item.Chain == "robinhood",
+                cancellationToken);
+        return chainSettings?.SlippagePercent ?? 5m;
+    }
+
 
     private async Task MarkInterruptedPreparationsAsync(CancellationToken cancellationToken)
     {

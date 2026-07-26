@@ -9,5 +9,6 @@ public sealed class BotOptions
     public long TelegramChannelId { get; set; }
     public bool EnablePersonalBot { get; set; }
     public bool EnableXMonitoring { get; set; } = true;
+    public bool EnableManualTokenCreation { get; set; }
     public string ChannelLanguage { get; set; } = "en";
 }

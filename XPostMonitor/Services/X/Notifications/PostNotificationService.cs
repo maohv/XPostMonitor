@@ -113,12 +113,11 @@ public sealed class PostNotificationService : BackgroundService
             bool isRepost = referenceType == "retweeted";
             bool canCreateToken = watcher.TelegramUser.TradingSettings?.EnableTokenCreation == true
                 && LaunchpadCatalog.IsValidRoute(watcher.TokenChain, watcher.TokenDex, watcher.TokenAnchor)
-                && !isRepost;
+                && !isRepost
+                && TokenPostContext.IsMeaningfulReply(postEvent.Response, content.OwnPhotoUrl);
             if (canCreateToken)
             {
-                string tokenText = referenceType == "replied_to"
-                    ? "[POST_TYPE=reply]\n" + post.Text
-                    : post.Text;
+                string tokenText = TokenPostContext.BuildAiInput(postEvent.Response);
                 await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, tokenText, post.Language,
                     content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!, watcher.TokenAnchor,
                     content.OwnPhotoUrl != null, watcher.CreatorTaxPercent,

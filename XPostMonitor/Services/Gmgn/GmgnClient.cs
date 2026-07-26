@@ -148,6 +148,42 @@ public sealed class GmgnClient
         throw new InvalidOperationException("GMGN has not indexed the initial token purchase yet.");
     }
 
+    // Dùng cho launchpad đã biết sẵn token ghép cặp, ví dụ Pons luôn dùng WETH.
+    // Cách này không bắt Pons phải chờ GMGN index thêm thông tin pool.
+    public async Task<GmgnTokenPosition> GetTokenPositionWithKnownQuoteAsync(GmgnCredentials credentials,
+        string chain, string walletAddress, string tokenAddress, string quoteTokenAddress,
+        CancellationToken cancellationToken)
+    {
+        string linkedWallet = await GetWalletAddressAsync(credentials.ApiKey, chain, cancellationToken);
+        if (!string.Equals(linkedWallet, walletAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The GMGN wallet does not match the token launch wallet.");
+        }
+
+        for (int attempt = 1; attempt <= 12; attempt++)
+        {
+            string activityJson = await RunAsync(
+                ["portfolio", "activity", "--chain", chain, "--wallet", walletAddress,
+                 "--token", tokenAddress, "--type", "buy", "--limit", "20", "--raw"],
+                credentials.ApiKey, null, false, cancellationToken);
+            decimal entryPrice = ReadLatestBuyPrice(activityJson, tokenAddress);
+            await AutoTradingDiagnosticLog.WriteAsync("PONS PRICE CHECK | Attempt=" + attempt
+                + " | Token=" + tokenAddress + " | Entry="
+                + entryPrice.ToString(CultureInfo.InvariantCulture));
+            if (entryPrice > 0)
+            {
+                return new GmgnTokenPosition(linkedWallet, quoteTokenAddress, entryPrice);
+            }
+
+            if (attempt < 12)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            }
+        }
+
+        throw new InvalidOperationException("GMGN has not indexed the Pons initial purchase price yet.");
+    }
+
     public async Task<string> CreateTakeProfitAsync(GmgnCredentials credentials, string chain,
         string walletAddress, string tokenAddress, string quoteTokenAddress, decimal targetPrice,
         BigInteger amountIn, decimal slippagePercent, decimal? gasPriceGwei,

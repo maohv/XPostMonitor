@@ -41,6 +41,64 @@ public sealed class EvmWalletService
         }
     }
 
+    // Nhập private key có sẵn, tự tính địa chỉ ví và mã hóa lại cho máy đang chạy bot.
+    public async Task<EvmWalletCredentials> ImportAsync(long chatId, string privateKey,
+        CancellationToken cancellationToken)
+    {
+        SemaphoreSlim walletLock = walletLocks.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
+        await walletLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await ImportInternalAsync(chatId, privateKey, cancellationToken);
+        }
+        finally
+        {
+            walletLock.Release();
+        }
+    }
+
+    private async Task<EvmWalletCredentials> ImportInternalAsync(long chatId, string privateKey,
+        CancellationToken cancellationToken)
+    {
+        string cleanPrivateKey = privateKey.Trim();
+        if (cleanPrivateKey.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            cleanPrivateKey = cleanPrivateKey[2..];
+        }
+
+        if (cleanPrivateKey.Length != 64 || !cleanPrivateKey.All(Uri.IsHexDigit))
+        {
+            throw new ArgumentException("Invalid EVM private key.", nameof(privateKey));
+        }
+
+        EthECKey key;
+        try
+        {
+            key = new EthECKey(cleanPrivateKey);
+        }
+        catch (Exception exception)
+        {
+            throw new ArgumentException("Invalid EVM private key.", nameof(privateKey), exception);
+        }
+
+        string normalizedPrivateKey = key.GetPrivateKey();
+        if (!normalizedPrivateKey.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedPrivateKey = "0x" + normalizedPrivateKey;
+        }
+
+        string address = key.GetPublicAddress();
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        UserTradingSettings settings = await GetOrCreateAsync(db, chatId, cancellationToken);
+        settings.EvmWalletAddress = address;
+        settings.EncryptedEvmPrivateKey = protector.Protect(normalizedPrivateKey);
+        settings.EnableTokenCreation = false;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return new EvmWalletCredentials(address, normalizedPrivateKey);
+    }
+
     private async Task<EvmWalletCreated> CreateInternalAsync(long chatId, CancellationToken cancellationToken)
     {
         using IServiceScope scope = scopeFactory.CreateScope();
