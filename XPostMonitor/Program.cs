@@ -154,4 +154,11 @@ builder.Services.AddHostedService<XActivityStreamService>();
 builder.Services.AddHostedService<TelegramBotService>();
 
 IHost app = builder.Build();
+
+using (IServiceScope scope = app.Services.CreateScope())
+{
+    AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+
 app.Run();
