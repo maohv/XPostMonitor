@@ -8,6 +8,7 @@ using Nethereum.Web3;
 using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Models;
+using XPostMonitor.Services.Gmgn.Chains;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
@@ -18,40 +19,38 @@ namespace XPostMonitor.Services.Gmgn;
 // Đặt TP sau khi launch và theo dõi kết quả bán từ GMGN.
 public sealed class AutoTradingService : BackgroundService
 {
-    private static readonly HashSet<string> SupportedChains =
-        new(StringComparer.OrdinalIgnoreCase) { "bsc", "base", "eth", "robinhood", "sol", "stable" };
     private const string TransferTopic =
         "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
     private readonly IServiceScopeFactory scopeFactory;
     private readonly AutoTradingSettingsService settings;
     private readonly GmgnClient gmgnClient;
-    private readonly EvmNetworksOptions networks;
+    private readonly IReadOnlyList<IAutoTradingChainHandler> chainHandlers;
     private readonly TelegramApiClient telegramApi;
     private readonly BotTextService text;
     private readonly ILogger<AutoTradingService> logger;
     private readonly Channel<AutoTradingRequest> queue = Channel.CreateUnbounded<AutoTradingRequest>();
 
     public AutoTradingService(IServiceScopeFactory scopeFactory, AutoTradingSettingsService settings,
-        GmgnClient gmgnClient, EvmNetworksOptions networks, TelegramApiClient telegramApi, BotTextService text,
-        ILogger<AutoTradingService> logger)
+        GmgnClient gmgnClient, IEnumerable<IAutoTradingChainHandler> chainHandlers,
+        TelegramApiClient telegramApi, BotTextService text, ILogger<AutoTradingService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.settings = settings;
         this.gmgnClient = gmgnClient;
-        this.networks = networks;
+        this.chainHandlers = chainHandlers.ToList();
         this.telegramApi = telegramApi;
         this.text = text;
         this.logger = logger;
     }
 
-    public async ValueTask QueueAsync(long chatId, string postId, string chain, string tokenAddress,
-        string tokenName, string tokenSymbol, string walletAddress, decimal slippagePercent,
+    public async ValueTask QueueAsync(long chatId, string postId, string chain, string launchpad,
+        string tokenAddress, string tokenName, string tokenSymbol, string walletAddress, decimal slippagePercent,
         string? launchTransactionHash, string language, CancellationToken cancellationToken)
     {
         await AutoTradingDiagnosticLog.WriteAsync("QUEUED | Post=" + postId + " | Symbol=" + tokenSymbol
-            + " | Chain=" + chain + " | Token=" + tokenAddress);
-        await queue.Writer.WriteAsync(new AutoTradingRequest(chatId, postId, chain, tokenAddress,
+            + " | Chain=" + chain + " | Launchpad=" + launchpad + " | Token=" + tokenAddress);
+        await queue.Writer.WriteAsync(new AutoTradingRequest(chatId, postId, chain, launchpad, tokenAddress,
             tokenName, tokenSymbol, walletAddress, slippagePercent, launchTransactionHash,
             BotTextService.Normalize(language)),
             cancellationToken);
@@ -152,19 +151,9 @@ public sealed class AutoTradingService : BackgroundService
     private async Task<DateTimeOffset?> WaitForExternalBuyAsync(AutoTradingRequest request,
         TimeSpan timeout, CancellationToken cancellationToken)
     {
-        Web3 web3 = new Web3(GetRpcUrl(request.Chain));
-        BigInteger nextBlock;
-        if (!string.IsNullOrWhiteSpace(request.LaunchTransactionHash))
-        {
-            TransactionReceipt receipt = await web3.Eth.Transactions.GetTransactionReceipt
-                .SendRequestAsync(request.LaunchTransactionHash).WaitAsync(cancellationToken);
-            nextBlock = receipt.BlockNumber.Value;
-        }
-        else
-        {
-            nextBlock = (await web3.Eth.Blocks.GetBlockNumber.SendRequestAsync()
-                .WaitAsync(cancellationToken)).Value;
-        }
+        Web3 web3 = new Web3(GetChainHandler(request).RpcUrl);
+        BigInteger nextBlock = await GetMonitoringStartBlockAsync(web3, request.LaunchTransactionHash,
+            cancellationToken);
         DateTimeOffset deadline = DateTimeOffset.UtcNow.Add(timeout);
 
         while (DateTimeOffset.UtcNow < deadline)
@@ -196,6 +185,28 @@ public sealed class AutoTradingService : BackgroundService
         }
 
         return null;
+    }
+
+    private static async Task<BigInteger> GetMonitoringStartBlockAsync(Web3 web3,
+        string? launchTransactionHash, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(launchTransactionHash))
+        {
+            for (int attempt = 1; attempt <= 10; attempt++)
+            {
+                TransactionReceipt? receipt = await web3.Eth.Transactions.GetTransactionReceipt
+                    .SendRequestAsync(launchTransactionHash).WaitAsync(cancellationToken);
+                if (receipt?.BlockNumber != null)
+                {
+                    return receipt.BlockNumber.Value;
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+            }
+        }
+
+        BigInteger latestBlock = (await web3.Eth.Blocks.GetBlockNumber.SendRequestAsync()
+            .WaitAsync(cancellationToken)).Value;
+        return BigInteger.Max(BigInteger.Zero, latestBlock - 100);
     }
 
     private static bool IsExternalTransfer(FilterLog log, string walletAddress,
@@ -255,21 +266,25 @@ public sealed class AutoTradingService : BackgroundService
     {
         try
         {
-            LaunchpadNetwork network = LaunchpadCatalog.Find(request.Chain)
-                ?? throw new InvalidOperationException("Unknown token network.");
+            IAutoTradingChainHandler handler = GetChainHandler(request);
             GmgnCredentials credentials = await settings.GetCredentialsAsync(request.ChatId,
                 cancellationToken) ?? throw new InvalidOperationException("GMGN is not connected.");
-            string quoteToken = await gmgnClient.GetQuoteTokenAsync(credentials, network.GmgnChain,
-                request.TokenAddress, cancellationToken);
-            if (network.GmgnChain == "bsc")
-            {
-                quoteToken = "0x0000000000000000000000000000000000000000";
-            }
-            string sellReference = await gmgnClient.SellAllAsync(credentials, network.GmgnChain,
-                request.WalletAddress, request.TokenAddress, quoteToken, request.SlippagePercent,
+            string quoteToken = await handler.GetSellQuoteTokenAsync(credentials, request.TokenAddress,
                 cancellationToken);
+            BigInteger? exactAmountIn = await handler.GetSellAmountAsync(request.WalletAddress,
+                request.TokenAddress, cancellationToken);
+            if (exactAmountIn == 0)
+            {
+                throw new InvalidOperationException("The wallet no longer has this token to sell.");
+            }
+            await AutoTradingDiagnosticLog.WriteAsync("AUTO EXIT SWAP | Symbol=" + request.TokenSymbol
+                + " | Chain=" + handler.GmgnChain + " | Quote=" + quoteToken + " | Amount="
+                + (exactAmountIn?.ToString(CultureInfo.InvariantCulture) ?? "100%"));
+            string sellReference = await gmgnClient.SellAllAsync(credentials, handler.GmgnChain,
+                request.WalletAddress, request.TokenAddress, quoteToken, exactAmountIn,
+                request.SlippagePercent, cancellationToken);
 
-            await CloseRemainingOrdersAsync(request, credentials, network.GmgnChain, cancellationToken);
+            await CloseRemainingOrdersAsync(request, credentials, handler.GmgnChain, cancellationToken);
             await MarkTradeExitedAsync(request, reason, cancellationToken);
             await AutoTradingDiagnosticLog.WriteAsync("AUTO EXIT SOLD | Symbol=" + request.TokenSymbol
                 + " | Reason=" + reason + " | Reference=" + sellReference);
@@ -357,25 +372,16 @@ public sealed class AutoTradingService : BackgroundService
         }
     }
 
-    private string GetRpcUrl(string chain)
+    private IAutoTradingChainHandler GetChainHandler(AutoTradingRequest request)
     {
-        return chain.ToLowerInvariant() switch
-        {
-            "bsc" => networks.BscRpcUrl,
-            "base" => networks.BaseRpcUrl,
-            "robinhood" => networks.RobinhoodRpcUrl,
-            "stable" => networks.StableRpcUrl,
-            _ => throw new InvalidOperationException("No RPC URL is configured for " + chain + ".")
-        };
+        return chainHandlers.FirstOrDefault(item => item.Supports(request.Chain, request.Launchpad))
+            ?? throw new InvalidOperationException("Auto trading is not supported for " + request.Chain
+                + "/" + request.Launchpad + ".");
     }
 
     private async Task PrepareAsync(AutoTradingRequest request, CancellationToken cancellationToken)
     {
-        LaunchpadNetwork? network = LaunchpadCatalog.Find(request.Chain);
-        if (network == null || !SupportedChains.Contains(network.GmgnChain))
-        {
-            throw new InvalidOperationException("GMGN does not support auto trading on this chain.");
-        }
+        IAutoTradingChainHandler handler = GetChainHandler(request);
 
         GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId, cancellationToken);
         List<TakeProfitSetting> levels = await settings.GetTakeProfitsAsync(request.ChatId, cancellationToken);
@@ -388,7 +394,7 @@ public sealed class AutoTradingService : BackgroundService
             throw new InvalidOperationException("Add at least one take-profit level in /settings first.");
         }
 
-        GmgnTokenPosition position = await gmgnClient.GetTokenPositionAsync(credentials, network.GmgnChain,
+        GmgnTokenPosition position = await gmgnClient.GetTokenPositionAsync(credentials, handler.GmgnChain,
             request.WalletAddress, request.TokenAddress, cancellationToken);
         logger.LogInformation("[GMGN] Position found for {Symbol}. Entry price: {EntryPrice}.",
             request.TokenSymbol, position.EntryPrice);
@@ -402,7 +408,7 @@ public sealed class AutoTradingService : BackgroundService
         {
             ChatId = request.ChatId,
             PostId = request.PostId,
-            Chain = network.GmgnChain,
+            Chain = handler.GmgnChain,
             TokenAddress = request.TokenAddress,
             TokenName = request.TokenName,
             TokenSymbol = request.TokenSymbol,
@@ -416,17 +422,12 @@ public sealed class AutoTradingService : BackgroundService
 
         try
         {
-            BigInteger tokenBalance = await GetTokenBalanceAsync(request.Chain, position.WalletAddress,
+            BigInteger tokenBalance = await handler.GetTokenBalanceAsync(position.WalletAddress,
                 request.TokenAddress, cancellationToken);
             await AutoTradingDiagnosticLog.WriteAsync("TP BALANCE | Symbol=" + request.TokenSymbol
                 + " | Raw=" + tokenBalance);
-            decimal? gasPriceGwei = network.GmgnChain == "bsc"
-                ? await gmgnClient.GetAverageGasPriceGweiAsync(credentials, network.GmgnChain, cancellationToken)
-                : null;
-            if (network.GmgnChain == "bsc" && gasPriceGwei < 0.05m)
-            {
-                gasPriceGwei = 0.05m;
-            }
+            decimal? gasPriceGwei = await handler.GetTakeProfitGasPriceGweiAsync(credentials,
+                cancellationToken);
             await AutoTradingDiagnosticLog.WriteAsync("TP GAS | Symbol=" + request.TokenSymbol
                 + " | GasGwei=" + (gasPriceGwei?.ToString(CultureInfo.InvariantCulture) ?? "auto"));
             for (int index = 0; index < levels.Count; index++)
@@ -445,7 +446,7 @@ public sealed class AutoTradingService : BackgroundService
                 {
                     throw new InvalidOperationException("Token balance is too small for TP" + (index + 1) + ".");
                 }
-                string orderId = await gmgnClient.CreateTakeProfitAsync(credentials, network.GmgnChain,
+                string orderId = await gmgnClient.CreateTakeProfitAsync(credentials, handler.GmgnChain,
                     position.WalletAddress, request.TokenAddress, position.QuoteTokenAddress, targetPrice, amountIn,
                     request.SlippagePercent, gasPriceGwei, cancellationToken);
                 db.AutoTradeOrders.Add(new AutoTradeOrder
@@ -491,14 +492,6 @@ public sealed class AutoTradingService : BackgroundService
             }
             throw;
         }
-    }
-
-    private async Task<BigInteger> GetTokenBalanceAsync(string chain, string walletAddress,
-        string tokenAddress, CancellationToken cancellationToken)
-    {
-        Web3 web3 = new Web3(GetRpcUrl(chain));
-        return await web3.Eth.ERC20.GetContractService(tokenAddress).BalanceOfQueryAsync(walletAddress)
-            .WaitAsync(cancellationToken);
     }
 
     private async Task MonitorLoopAsync(CancellationToken cancellationToken)
@@ -604,7 +597,7 @@ public sealed class AutoTradingService : BackgroundService
         return value.Length <= 500 ? value : value[..500];
     }
 
-    private sealed record AutoTradingRequest(long ChatId, string PostId, string Chain, string TokenAddress,
-        string TokenName, string TokenSymbol, string WalletAddress, decimal SlippagePercent,
+    private sealed record AutoTradingRequest(long ChatId, string PostId, string Chain, string Launchpad,
+        string TokenAddress, string TokenName, string TokenSymbol, string WalletAddress, decimal SlippagePercent,
         string? LaunchTransactionHash, string Language);
 }

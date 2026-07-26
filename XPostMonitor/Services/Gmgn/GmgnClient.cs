@@ -258,8 +258,8 @@ public sealed class GmgnClient
     }
 
     public async Task<string> SellAllAsync(GmgnCredentials credentials, string chain,
-        string walletAddress, string tokenAddress, string quoteTokenAddress, decimal slippagePercent,
-        CancellationToken cancellationToken)
+        string walletAddress, string tokenAddress, string quoteTokenAddress, BigInteger? exactAmountIn,
+        decimal slippagePercent, CancellationToken cancellationToken)
     {
         List<string> arguments =
         [
@@ -268,10 +268,19 @@ public sealed class GmgnClient
             "--from", walletAddress,
             "--input-token", tokenAddress,
             "--output-token", quoteTokenAddress,
-            "--percent", "100",
             "--slippage", slippagePercent.ToString("G29", CultureInfo.InvariantCulture),
             "--yes", "--raw"
         ];
+        if (exactAmountIn > 0)
+        {
+            arguments.Add("--amount");
+            arguments.Add(exactAmountIn.Value.ToString(CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            arguments.Add("--percent");
+            arguments.Add("100");
+        }
         if (chain == "bsc")
         {
             decimal gasPrice = await GetAverageGasPriceGweiAsync(credentials, chain, cancellationToken);

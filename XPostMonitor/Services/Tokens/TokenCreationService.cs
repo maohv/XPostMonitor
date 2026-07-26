@@ -189,7 +189,7 @@ public sealed class TokenCreationService : BackgroundService
         if (!result.IsDryRun && request.EnableAutoTrading && !string.IsNullOrWhiteSpace(result.TokenAddress))
         {
             await autoTradingService.QueueAsync(request.ChatId, request.PostId, request.Chain,
-                result.TokenAddress, preview.Draft.Name, preview.Draft.Symbol, wallet.Address,
+                request.Launchpad, result.TokenAddress, preview.Draft.Name, preview.Draft.Symbol, wallet.Address,
                 settings.SlippagePercent, result.TransactionHash, request.Language, cancellationToken);
         }
         else if (!result.IsDryRun)

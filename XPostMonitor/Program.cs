@@ -5,6 +5,7 @@ using XPostMonitor.Data;
 using XPostMonitor.Services;
 using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gmgn;
+using XPostMonitor.Services.Gmgn.Chains;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
@@ -133,6 +134,8 @@ builder.Services.AddSingleton<ChannelWatchlistService>();
 builder.Services.AddSingleton<PremiumService>();
 builder.Services.AddSingleton<GmgnClient>();
 builder.Services.AddSingleton<AutoTradingSettingsService>();
+builder.Services.AddSingleton<IAutoTradingChainHandler, BscAutoTradingChainHandler>();
+builder.Services.AddSingleton<IAutoTradingChainHandler, RobinhoodAutoTradingChainHandler>();
 builder.Services.AddSingleton<AutoTradingService>();
 builder.Services.AddSingleton<EvmWalletService>();
 builder.Services.AddSingleton<TokenSettingsService>();
@@ -147,10 +150,13 @@ builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequired
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutoTradingService>());
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PostNotificationService>());
 builder.Services.AddHostedService<ApiHealthMonitorService>();
-builder.Services.AddHostedService<XRuleSyncService>();
-builder.Services.AddHostedService<XStreamService>();
-builder.Services.AddHostedService<XActivitySubscriptionSyncService>();
-builder.Services.AddHostedService<XActivityStreamService>();
+if (botOptions.EnableXMonitoring)
+{
+    builder.Services.AddHostedService<XRuleSyncService>();
+    builder.Services.AddHostedService<XStreamService>();
+    builder.Services.AddHostedService<XActivitySubscriptionSyncService>();
+    builder.Services.AddHostedService<XActivityStreamService>();
+}
 builder.Services.AddHostedService<TelegramBotService>();
 
 IHost app = builder.Build();
