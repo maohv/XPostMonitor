@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <Content Update="Localization\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\ChainLogos\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

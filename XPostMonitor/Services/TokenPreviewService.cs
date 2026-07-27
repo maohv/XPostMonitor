@@ -62,17 +62,18 @@ public sealed class TokenPreviewService
         }
 
         string? imageStyle = GetChainImageStyle(chain);
+        string? chainLogoBase64 = GetChainLogoBase64(chain);
         Task<(TokenDraftDto Draft, double Seconds)> metadataTask = CreateMetadataAsync(postText, imageUrl,
             imageStyle, deadline.Token);
 
         if (string.IsNullOrWhiteSpace(imageUrl))
         {
-            return await CreateFromTextAsync(metadataTask, receivedAt, imageStyle, deadline,
+            return await CreateFromTextAsync(metadataTask, receivedAt, imageStyle, chainLogoBase64, deadline,
                 expiresAfterTenSeconds, cancellationToken);
         }
 
         Task<(FluxImageDto Image, double Seconds)> imageTask = CreateImageAsync(postText, imageUrl, imageStyle,
-            deadline.Token);
+            chainLogoBase64, deadline.Token);
 
         try
         {
@@ -188,17 +189,17 @@ public sealed class TokenPreviewService
     }
 
     private async Task<(FluxImageDto Image, double Seconds)> CreateImageAsync(string? postText, string? imageUrl,
-        string? imageStyle, CancellationToken cancellationToken)
+        string? imageStyle, string? chainLogoBase64, CancellationToken cancellationToken)
     {
         Stopwatch timer = Stopwatch.StartNew();
         FluxImageDto image = await fluxClient.CreateTokenImageResultAsync(postText, imageUrl, imageStyle,
-            cancellationToken);
+            chainLogoBase64, cancellationToken);
         timer.Stop();
         return (image, timer.Elapsed.TotalSeconds);
     }
 
     private async Task<TokenPreviewDto> CreateFromTextAsync(Task<(TokenDraftDto Draft, double Seconds)> metadataTask,
-        DateTimeOffset receivedAt, string? imageStyle, CancellationTokenSource deadline,
+        DateTimeOffset receivedAt, string? imageStyle, string? chainLogoBase64, CancellationTokenSource deadline,
         bool expiresAfterTenSeconds, CancellationToken cancellationToken)
     {
         try
@@ -206,7 +207,7 @@ public sealed class TokenPreviewService
             (TokenDraftDto draft, double openAiSeconds) = await metadataTask;
             Stopwatch timer = Stopwatch.StartNew();
             FluxImageDto image = await fluxClient.CreateTokenImageFromPromptAsync(draft.ImagePrompt, imageStyle,
-                deadline.Token);
+                chainLogoBase64, deadline.Token);
             timer.Stop();
 
             if (expiresAfterTenSeconds && DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
@@ -234,13 +235,29 @@ public sealed class TokenPreviewService
     {
         return chain?.ToLowerInvariant() switch
         {
-            "bsc" => "Keep natural subject colors dominant. Add subtle BNB yellow #F0B90B, charcoal black, and white accents only in lighting, edges, or background details.",
+            "bsc" => "Keep natural subject colors dominant with BNB yellow #F0B90B, charcoal black, and white accents. Naturally print one clearly recognizable black BNB Chain geometric logo on a yellow physical object that belongs in the scene, such as a cap, shirt, backpack, phone case, vehicle, or prop. The logo must follow the object's perspective and material, never float separately, never become a watermark, and include no brand text.",
             "base" => "Keep natural subject colors dominant. Add subtle Base blue #0052FF, white, and deep navy accents only in lighting, edges, or background details.",
             "sol" => "Keep natural subject colors dominant. Add subtle Solana purple #9945FF, mint green #14F195, and cyan accents only in lighting, edges, or background details.",
             "robinhood" => "Keep natural subject colors dominant. Add subtle Robinhood green #00C805, black, and white accents only in lighting, edges, or background details.",
             "stable" => "Keep natural subject colors dominant. Add subtle Stable emerald green #00D395, cool teal, white, and graphite accents only in lighting, edges, or background details.",
             _ => null
         };
+    }
+
+    private static string? GetChainLogoBase64(string? chain)
+    {
+        if (!string.Equals(chain, "bsc", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        string path = Path.Combine(AppContext.BaseDirectory, "Assets", "ChainLogos", "bnb.png");
+        if (!File.Exists(path))
+        {
+            throw new InvalidOperationException("BNB logo reference file was not found.");
+        }
+
+        return Convert.ToBase64String(File.ReadAllBytes(path));
     }
 
     private static (string? Text, string? ImageUrl) ParseInput(string? input)

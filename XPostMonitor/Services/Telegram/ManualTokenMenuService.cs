@@ -56,16 +56,10 @@ public sealed class ManualTokenMenuService
             return;
         }
 
-        // Khi tắt tạo thủ công, link X chỉ dùng để xem trước ảnh, tên và mã.
-        if (!enableManualTokenCreation)
-        {
-            await PreviewAsync(chatId, postId, language, cancellationToken);
-            return;
-        }
-
+        string action = enableManualTokenCreation ? "chain" : "preview";
         List<IReadOnlyList<TelegramInlineButton>> buttons = LaunchpadCatalog.All
             .Select(network => (IReadOnlyList<TelegramInlineButton>)
-                [new TelegramInlineButton(network.DisplayName, "manual:chain:" + postId + ":" + network.Chain)])
+                [new TelegramInlineButton(network.DisplayName, "manual:" + action + ":" + postId + ":" + network.Chain)])
             .ToList();
         buttons.Add([new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]);
 
@@ -77,14 +71,6 @@ public sealed class ManualTokenMenuService
         CancellationToken cancellationToken)
     {
         await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
-
-        // Chặn cả nút cũ còn sót lại để chắc chắn không thể tạo token thủ công.
-        if (!enableManualTokenCreation)
-        {
-            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualCreationDisabled"),
-                cancellationToken);
-            return;
-        }
 
         if (data == "manual:cancel")
         {
@@ -99,6 +85,21 @@ public sealed class ManualTokenMenuService
         }
 
         string postId = parts[2];
+        if (!enableManualTokenCreation && parts[1] == "preview"
+            && LaunchpadCatalog.Find(parts[3]) != null)
+        {
+            await PreviewAsync(chatId, postId, parts[3], language, cancellationToken);
+            return;
+        }
+
+        // Chặn cả nút cũ còn sót lại để chắc chắn không thể tạo token thủ công.
+        if (!enableManualTokenCreation)
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualCreationDisabled"),
+                cancellationToken);
+            return;
+        }
+
         if (parts[1] == "chain")
         {
             await ShowLaunchpadsAsync(chatId, postId, parts[3], language, cancellationToken);
@@ -295,7 +296,7 @@ public sealed class ManualTokenMenuService
     }
 
     // Lấy dữ liệu thật từ link X rồi chạy phần tạo ảnh và metadata, không gọi launchpad.
-    private async Task PreviewAsync(long chatId, string postId, string language,
+    private async Task PreviewAsync(long chatId, string postId, string chain, string language,
         CancellationToken cancellationToken)
     {
         try
@@ -325,8 +326,8 @@ public sealed class ManualTokenMenuService
             // Post có ảnh riêng dùng nguyên ảnh; Post chỉ có chữ thì tạo ảnh mới bằng Flux.
             TokenPreviewDto preview = content.OwnPhotoUrl != null
                 ? await tokenPreviewService.CreateWithOriginalImageAsync(aiText, content.OwnPhotoUrl,
-                    startedAt, null, false, cancellationToken)
-                : await tokenPreviewService.CreateAsync(aiText, null, startedAt, null, false,
+                    startedAt, chain, false, cancellationToken)
+                : await tokenPreviewService.CreateAsync(aiText, null, startedAt, chain, false,
                     cancellationToken);
 
             string source = text.Get(language, preview.UsedSourceImage ? "PostImage" : "PostText");

@@ -119,6 +119,9 @@ public sealed class OpenAiClient
             ? "Choose colors from the source subject or image. "
             : "The user selected this launch-chain style: " + chainImageStyle
                 + " Always apply this palette to image_prompt while keeping the post subject recognizable. ";
+        string reasoningEffort = options.Model.Contains("nano", StringComparison.OrdinalIgnoreCase)
+            ? "minimal"
+            : "none";
 
         var requestBody = new
         {
@@ -144,20 +147,9 @@ public sealed class OpenAiClient
                 + "Prefer the unique event over a generic person, company, product, chain, or topic name. Preserve the post's important "
                 + "words and exact numbers. The name should make the unusual reason for this post immediately obvious. "
                 + "Post text is always the primary source for name and symbol. An attached image may add visual context but must "
-                + "not replace the post's hook or language. Input marked [POST_TYPE=reply] or [POST_TYPE=quote] contains the whole "
-                + "conversation in [ORIGINAL_POST] and [REPLY] or [QUOTE_POST]. Read both parts as one story before choosing a name. "
-                + "First decide whether the reply or quote confirms, mocks, rejects, explains, promotes, or extends the original Post. "
-                + "Then compare the best hook from each part instead of automatically choosing the longer or emphasized phrase. If the "
-                + "original Post has the strongest surprising word, joke, nickname, or punchline and the new Post only reacts to or "
-                + "explains it, keep the original hook. If the current Post introduces the more memorable line, place, action, or joke, "
-                + "use the current hook. If the memorable idea exists only through their relationship, name that combined story. Never "
-                + "turn an event description into a generic headline when the current author supplies a sharper hook. For example, a "
-                + "quote saying there will be a fireside chat and a current Post saying See you tomorrow in Manila should become "
-                + "CZ in Manila or See You in Manila, not CZ Fireside Chat. For example, when an original Post proposes moving users "
-                + "to SEX and a reply discusses user overlap, choose name SEX and symbol SEX, not Multi Home or User Overlap. "
-                + "The final choice "
-                + "should be the word or phrase readers will remember after seeing the complete conversation and should make them "
-                + "wonder why the token has that name. Prefer an exact hook that fits the 20-character limit. "
+                + "not replace the post's hook or language. For [POST_TYPE=reply], use the exact memorable phrase in [REPLY] as the "
+                + "hook and do not infer a different hook from missing conversation context. For [POST_TYPE=quote], read both parts "
+                + "but prefer the current author's words when they form a clear hook. Prefer an exact hook that fits 20 characters. "
                 + "If input starts with [SOURCE_LANGUAGE=xx], use that language when creating a new combined name, but preserve any "
                 + "strong exact hook from either Post in its original language and script. "
                 + "Ignore languages found only inside an attached image when choosing name and symbol. For a standalone Post, use "
@@ -206,12 +198,13 @@ public sealed class OpenAiClient
                 + "speech bubbles, signs, documents, pages, whiteboards, screens, user interfaces, or any surface containing writing. "
                 + "Turn verbal ideas into clear visual subjects, actions, objects, expressions, and composition instead. "
                 + "Avoid traders at screens and candlestick charts unless the post specifically depends on them. Use strong thumbnail "
-                + "contrast. " + imageStyleInstruction + "The image must contain no pseudo-text, URLs, logos, trademarks, token "
-                + "symbols, or watermark. Do not claim endorsement or "
+                + "contrast. " + imageStyleInstruction + "The image must contain no pseudo-text, URLs, token symbols, or watermark. "
+                + "Allow only the small launch-chain emblem explicitly requested by the chain style; no other logos or trademarks. "
+                + "Do not claim endorsement or "
                 + "call the token official. Name must be no more than 20 characters.",
             input,
-            reasoning = new { effort = "low" },
-            max_output_tokens = 500,
+            reasoning = new { effort = reasoningEffort },
+            max_output_tokens = 1000,
             text = new
             {
                 verbosity = "low",

@@ -44,29 +44,33 @@ public static class TokenPostContext
         return meaningfulCharacters >= 2 && !RepliesWithoutStory.Contains(normalized);
     }
 
-    // Reply và Quote phải gửi cả Post gốc để AI hiểu trọn câu chuyện.
+    // Reply rõ nghĩa tự làm hook; chỉ Quote mới cần thêm Post gốc.
     public static string BuildAiInput(XStreamPostResponse response)
     {
         XPost post = response.Data!;
         XReferencedPost? reference = post.ReferencedPosts?.FirstOrDefault();
-        if (reference?.Type is not ("replied_to" or "quoted"))
+        if (reference?.Type == "replied_to")
+        {
+            return "[POST_TYPE=reply]\n[REPLY]\nText: " + post.Text.Trim();
+        }
+
+        if (reference?.Type != "quoted")
         {
             return post.Text;
         }
 
         XStreamIncludes includes = response.Includes ?? new XStreamIncludes();
         XPost? originalPost = includes.Posts?.FirstOrDefault(item => item.Id == reference.Id);
-        string currentMarker = reference.Type == "replied_to" ? "REPLY" : "QUOTE_POST";
 
         StringBuilder input = new StringBuilder()
-            .Append("[POST_TYPE=").Append(reference.Type == "replied_to" ? "reply" : "quote").AppendLine("]");
+            .AppendLine("[POST_TYPE=quote]");
 
         if (originalPost != null)
         {
             AppendPost(input, "ORIGINAL_POST", originalPost, includes);
         }
 
-        AppendPost(input, currentMarker, post, includes);
+        AppendPost(input, "QUOTE_POST", post, includes);
         return input.ToString().Trim();
     }
 

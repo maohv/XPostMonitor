@@ -94,6 +94,12 @@ public sealed class FluxClient
     public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, string? chainImageStyle,
         CancellationToken cancellationToken)
     {
+        return await CreateTokenImageFromPromptAsync(imagePrompt, chainImageStyle, null, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, string? chainImageStyle,
+        string? chainLogoBase64, CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(imagePrompt))
         {
             throw new ArgumentException("AI did not return an image prompt.");
@@ -102,9 +108,11 @@ public sealed class FluxClient
         string style = string.IsNullOrWhiteSpace(chainImageStyle)
             ? string.Empty
             : " Apply this selected launch-chain palette: " + chainImageStyle;
+        string logoInstruction = GetLogoInstruction(chainLogoBase64, false);
         string prompt = imagePrompt + style + MemeTokenStyle + " "
-            + "No URLs, logos, trademarks, token symbols, or watermark.";
-        return await GenerateAsync(prompt, null, cancellationToken);
+            + logoInstruction
+            + " No URLs, token symbols, or watermark. Allow only the small launch-chain emblem requested by the selected chain palette; no other logos or trademarks.";
+        return await GenerateAsync(prompt, null, chainLogoBase64, cancellationToken);
     }
 
     public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl, CancellationToken cancellationToken)
@@ -114,6 +122,12 @@ public sealed class FluxClient
 
     public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl,
         string? chainImageStyle, CancellationToken cancellationToken)
+    {
+        return await CreateTokenImageResultAsync(postText, imageUrl, chainImageStyle, null, cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl,
+        string? chainImageStyle, string? chainLogoBase64, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(postText) && string.IsNullOrWhiteSpace(imageUrl))
         {
@@ -140,23 +154,26 @@ public sealed class FluxClient
         string style = string.IsNullOrWhiteSpace(chainImageStyle)
             ? "Choose colors from the source subject or image. "
             : "Apply this selected launch-chain palette: " + chainImageStyle + " ";
+        string logoInstruction = GetLogoInstruction(chainLogoBase64, !string.IsNullOrWhiteSpace(imageUrl));
         string prompt = string.IsNullOrWhiteSpace(imageUrl)
             ? "Create an image based directly on this post: " + cleanPostText + ". "
                 + "Visualize the post-specific hook with its concrete subjects and action. Do not use a broad generic theme. "
                 + style
                 + MemeTokenStyle
-                + " No URLs, logos, trademarks, token symbols, coins, currency signs, or watermark."
+                + logoInstruction
+                + " No URLs, token symbols, coins, currency signs, or watermark. Allow only the small launch-chain emblem requested by the selected chain palette; no other logos or trademarks."
             : "Use the input image as the primary reference for a meme-token illustrated adaptation. "
                 + "Preserve its main subjects, action, mood, and recognizable composition. "
                 + "Use the post only as context: " + cleanPostText + ". "
                 + style
                 + MemeTokenStyle
-                + " No URLs, logos, trademarks, coins, currency signs, or emblems.";
+                + logoInstruction
+                + " No URLs, coins, currency signs, or watermark. Allow only the small launch-chain emblem requested by the selected chain palette; no other logos, trademarks, or emblems.";
 
-        return await GenerateAsync(prompt, imageUrl, cancellationToken);
+        return await GenerateAsync(prompt, imageUrl, chainLogoBase64, cancellationToken);
     }
 
-    private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl,
+    private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl, string? chainLogoBase64,
         CancellationToken cancellationToken)
     {
         Dictionary<string, object> requestBody = new Dictionary<string, object>
@@ -171,6 +188,10 @@ public sealed class FluxClient
         if (!string.IsNullOrWhiteSpace(imageUrl))
         {
             requestBody["input_image"] = imageUrl;
+        }
+        if (!string.IsNullOrWhiteSpace(chainLogoBase64))
+        {
+            requestBody[string.IsNullOrWhiteSpace(imageUrl) ? "input_image" : "input_image_2"] = chainLogoBase64;
         }
 
         using HttpRequestMessage request = CreateRequest(HttpMethod.Post, "v1/" + options.ModelEndpoint);
@@ -196,6 +217,18 @@ public sealed class FluxClient
             Data = image,
             Url = generatedImageUrl
         };
+    }
+
+    private static string GetLogoInstruction(string? chainLogoBase64, bool hasPostImage)
+    {
+        if (string.IsNullOrWhiteSpace(chainLogoBase64))
+        {
+            return string.Empty;
+        }
+
+        string reference = hasPostImage ? "second input reference image" : "input reference image";
+        return " Use the " + reference
+            + " as the exact launch-chain logo. Reproduce its geometry accurately once on a physical object in the scene; do not redesign or approximate it.";
     }
 
     private async Task<string> WaitForImageAsync(string pollingUrl, CancellationToken cancellationToken)
