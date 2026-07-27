@@ -8,10 +8,23 @@ namespace XPostMonitor.Services.Flux;
 
 public sealed class FluxClient
 {
-    private const string MemeTokenStyle = " Render it in a polished internet-meme illustration style with expressive "
-        + "shapes, bold clean outlines, vivid flat colors, soft simple shading, playful energy, and a crisp sticker-like finish. "
-        + "Keep the subjects and composition dictated by the post. Do not force a circular badge, mascot, animal, or logo layout. "
-        + "Keep strong readability at tiny thumbnail size. The image must be completely text-free. Ignore any earlier request to "
+    private const string MemeTokenStyle = " Render it as a polished, playful 2D editorial-cartoon meme illustration. Use clean "
+        + "rounded line art, smooth confident dark outlines, bright aqua and turquoise foundations, warm coral and golden accents, "
+        + "soft cream highlights, gentle cel shading, and subtle paper-like texture. Build a lively layered scene with a clear "
+        + "foreground, subject, and simple scenic background; add a few small story details that reward a second look without making "
+        + "the composition cluttered. Keep the mood colorful, whimsical, premium, and instantly readable. Show one dominant "
+        + "character actively doing something, preferably as a full-body or three-quarter-body scene, with one humorous costume "
+        + "or prop and at least two concrete visual details tied directly to the selected hook. Match the character's expression "
+        + "to the Post's tone; never default to an angry face. If a real public figure is named, draw a respectful recognizable "
+        + "cartoon caricature using well-known visual traits instead of a generic businessperson. If a character would not fit "
+        + "the hook, use one dominant object in a clear action instead. "
+        + "Use rounded expressive shapes, a clean silhouette, dynamic but balanced composition, and a slightly absurd visual joke. "
+        + "Adapt the accent colors and scenery to the actual subject while keeping this consistent bright cartoon identity. Keep the "
+        + "composition readable at tiny thumbnail size. A plain headshot against an abstract city "
+        + "or gradient background is invalid because it does not tell the story. Do not create an event poster, stage, "
+        + "crowd, collage, trading dashboard, circular badge, logo, or detailed cinematic scene unless the selected hook truly "
+        + "depends on it. For fictional characters, create an original design; do not copy a known copyrighted character or franchise design. "
+        + "The image must be completely text-free. Ignore any earlier request to "
         + "render text. Draw no letters, words, numbers, emoji glyphs, captions, labels, speech bubbles, signs, documents, pages, "
         + "whiteboards, screens, user interfaces, writing, or pseudo-text. Express the idea only through visual subjects, actions, "
         + "objects, expressions, colors, and composition.";
@@ -143,9 +156,9 @@ public sealed class FluxClient
         return await GenerateAsync(prompt, imageUrl, cancellationToken);
     }
 
-    private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl, CancellationToken cancellationToken)
+    private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl,
+        CancellationToken cancellationToken)
     {
-
         Dictionary<string, object> requestBody = new Dictionary<string, object>
         {
             ["prompt"] = prompt,
