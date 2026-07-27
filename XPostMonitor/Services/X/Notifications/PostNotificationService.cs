@@ -118,9 +118,9 @@ public sealed class PostNotificationService : BackgroundService
             if (canCreateToken)
             {
                 string tokenText = TokenPostContext.BuildAiInput(postEvent.Response);
-                await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, tokenText, post.Language,
-                    content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!, watcher.TokenAnchor,
-                    content.OwnPhotoUrl != null, watcher.CreatorTaxPercent,
+                await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, account.Username, tokenText,
+                    post.Language, content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!,
+                    watcher.TokenAnchor, content.OwnPhotoUrl != null, watcher.CreatorTaxPercent,
                     watcher.EnableAutoTrading, watcher.TelegramUser.LanguageCode, postEvent.ReceivedAt,
                     cancellationToken);
             }

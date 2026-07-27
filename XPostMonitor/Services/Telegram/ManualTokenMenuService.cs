@@ -274,7 +274,8 @@ public sealed class ManualTokenMenuService
             }
 
             string tokenText = TokenPostContext.BuildAiInput(response);
-            bool queued = await tokenCreation.QueueManualAsync(chatId, postId, tokenText,
+            string? username = TokenPostContext.GetAuthorUsername(response);
+            bool queued = await tokenCreation.QueueManualAsync(chatId, postId, username, tokenText,
                 post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, creatorTaxPercent, language,
                 cancellationToken);
             if (!queued)
@@ -321,13 +322,14 @@ public sealed class ManualTokenMenuService
 
             string tokenText = TokenPostContext.BuildAiInput(response);
             string aiText = AddSourceLanguage(tokenText, post.Language);
+            string? username = TokenPostContext.GetAuthorUsername(response);
             DateTimeOffset startedAt = DateTimeOffset.UtcNow;
 
             // Post có ảnh riêng dùng nguyên ảnh; Post chỉ có chữ thì tạo ảnh mới bằng Flux.
             TokenPreviewDto preview = content.OwnPhotoUrl != null
                 ? await tokenPreviewService.CreateWithOriginalImageAsync(aiText, content.OwnPhotoUrl,
                     startedAt, chain, false, cancellationToken)
-                : await tokenPreviewService.CreateAsync(aiText, null, startedAt, chain, false,
+                : await tokenPreviewService.CreateAsync(aiText, null, startedAt, chain, username, false,
                     cancellationToken);
 
             string source = text.Get(language, preview.UsedSourceImage ? "PostImage" : "PostText");

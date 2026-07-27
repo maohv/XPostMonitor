@@ -50,17 +50,17 @@ public sealed class TokenCreationService : BackgroundService
         this.logger = logger;
     }
 
-    public ValueTask QueueAsync(long chatId, string postId, string postText, string? sourceLanguage,
+    public ValueTask QueueAsync(long chatId, string postId, string? username, string postText, string? sourceLanguage,
         string? photoUrl, string postUrl, string chain, string launchpad, string? anchor, bool useOriginalImage,
         int creatorTaxPercent, bool enableAutoTrading, string language, DateTimeOffset receivedAt,
         CancellationToken cancellationToken)
     {
-        return queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, postText, sourceLanguage, photoUrl,
-            postUrl, chain, launchpad, anchor, useOriginalImage, creatorTaxPercent,
+        return queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText, sourceLanguage,
+            photoUrl, postUrl, chain, launchpad, anchor, useOriginalImage, creatorTaxPercent,
             enableAutoTrading, BotTextService.Normalize(language), receivedAt, false, null), cancellationToken);
     }
 
-    public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string postText,
+    public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string? username, string postText,
         string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string? anchor,
         int creatorTaxPercent, string language, CancellationToken cancellationToken)
     {
@@ -72,8 +72,8 @@ public sealed class TokenCreationService : BackgroundService
 
         try
         {
-            await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, postText, sourceLanguage,
-                photoUrl, postUrl, chain, launchpad, anchor, !string.IsNullOrWhiteSpace(photoUrl),
+            await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
+                sourceLanguage, photoUrl, postUrl, chain, launchpad, anchor, !string.IsNullOrWhiteSpace(photoUrl),
                 creatorTaxPercent, true, BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey),
                 cancellationToken);
             return true;
@@ -150,7 +150,7 @@ public sealed class TokenCreationService : BackgroundService
             ? await tokenPreviewService.CreateWithOriginalImageAsync(aiPostText, request.PhotoUrl,
                 request.ReceivedAt, request.Chain, !request.IsManual, cancellationToken)
             : await tokenPreviewService.CreateAsync(aiPostText, request.PhotoUrl,
-                request.ReceivedAt, request.Chain, !request.IsManual, cancellationToken);
+                request.ReceivedAt, request.Chain, request.Username, !request.IsManual, cancellationToken);
         if (preview.IsExpired)
         {
             await telegramApi.SendMessageAsync(request.ChatId,
@@ -254,7 +254,7 @@ public sealed class TokenCreationService : BackgroundService
             : "[SOURCE_LANGUAGE=" + sourceLanguage.ToLowerInvariant() + "]\n" + postText;
     }
 
-    private sealed record TokenCreationRequest(long ChatId, string PostId, string PostText,
+    private sealed record TokenCreationRequest(long ChatId, string PostId, string? Username, string PostText,
         string? SourceLanguage, string? PhotoUrl, string PostUrl, string Chain, string Launchpad,
         string? Anchor, bool UseOriginalImage, int CreatorTaxPercent, bool EnableAutoTrading, string Language,
         DateTimeOffset ReceivedAt, bool IsManual, string? ManualJobKey);

@@ -100,6 +100,13 @@ public sealed class FluxClient
     public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, string? chainImageStyle,
         string? chainLogoBase64, CancellationToken cancellationToken)
     {
+        return await CreateTokenImageFromPromptAsync(imagePrompt, chainImageStyle, null, chainLogoBase64,
+            cancellationToken);
+    }
+
+    public async Task<FluxImageDto> CreateTokenImageFromPromptAsync(string imagePrompt, string? chainImageStyle,
+        string? characterImageBase64, string? chainLogoBase64, CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(imagePrompt))
         {
             throw new ArgumentException("AI did not return an image prompt.");
@@ -108,11 +115,18 @@ public sealed class FluxClient
         string style = string.IsNullOrWhiteSpace(chainImageStyle)
             ? string.Empty
             : " Apply this selected launch-chain palette: " + chainImageStyle;
-        string logoInstruction = GetLogoInstruction(chainLogoBase64, false);
-        string prompt = imagePrompt + style + MemeTokenStyle + " "
-            + logoInstruction
-            + " No URLs, token symbols, or watermark. Allow only the small launch-chain emblem requested by the selected chain palette; no other logos or trademarks.";
-        return await GenerateAsync(prompt, null, chainLogoBase64, cancellationToken);
+        bool hasCharacterImage = !string.IsNullOrWhiteSpace(characterImageBase64);
+        string logoInstruction = GetLogoInstruction(chainLogoBase64, false,
+            hasCharacterImage);
+
+        // Khi có ảnh nhân vật, dùng đúng kiểu prompt đã test tốt với FLUX 4B.
+        // Cảnh vẫn thay đổi theo từng Post, còn khuôn mặt và dấu hiệu riêng phải được giữ lại.
+        string prompt = hasCharacterImage
+            ? BuildCharacterReferencePrompt(imagePrompt, style, logoInstruction)
+            : imagePrompt + style + MemeTokenStyle + " "
+                + logoInstruction
+                + " No URLs, token symbols, or watermark. Allow only the small launch-chain emblem requested by the selected chain palette; no other logos or trademarks.";
+        return await GenerateAsync(prompt, null, characterImageBase64, chainLogoBase64, cancellationToken);
     }
 
     public async Task<FluxImageDto> CreateTokenImageResultAsync(string? postText, string? imageUrl, CancellationToken cancellationToken)
@@ -154,7 +168,7 @@ public sealed class FluxClient
         string style = string.IsNullOrWhiteSpace(chainImageStyle)
             ? "Choose colors from the source subject or image. "
             : "Apply this selected launch-chain palette: " + chainImageStyle + " ";
-        string logoInstruction = GetLogoInstruction(chainLogoBase64, !string.IsNullOrWhiteSpace(imageUrl));
+        string logoInstruction = GetLogoInstruction(chainLogoBase64, !string.IsNullOrWhiteSpace(imageUrl), false);
         string prompt = string.IsNullOrWhiteSpace(imageUrl)
             ? "Create an image based directly on this post: " + cleanPostText + ". "
                 + "Visualize the post-specific hook with its concrete subjects and action. Do not use a broad generic theme. "
@@ -176,6 +190,12 @@ public sealed class FluxClient
     private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl, string? chainLogoBase64,
         CancellationToken cancellationToken)
     {
+        return await GenerateAsync(prompt, imageUrl, null, chainLogoBase64, cancellationToken);
+    }
+
+    private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl,
+        string? characterImageBase64, string? chainLogoBase64, CancellationToken cancellationToken)
+    {
         Dictionary<string, object> requestBody = new Dictionary<string, object>
         {
             ["prompt"] = prompt,
@@ -185,13 +205,20 @@ public sealed class FluxClient
             ["safety_tolerance"] = 2
         };
 
+        int nextImageNumber = 1;
         if (!string.IsNullOrWhiteSpace(imageUrl))
         {
             requestBody["input_image"] = imageUrl;
+            nextImageNumber = 2;
+        }
+        if (!string.IsNullOrWhiteSpace(characterImageBase64))
+        {
+            AddReferenceImage(requestBody, nextImageNumber, characterImageBase64);
+            nextImageNumber++;
         }
         if (!string.IsNullOrWhiteSpace(chainLogoBase64))
         {
-            requestBody[string.IsNullOrWhiteSpace(imageUrl) ? "input_image" : "input_image_2"] = chainLogoBase64;
+            AddReferenceImage(requestBody, nextImageNumber, chainLogoBase64);
         }
 
         using HttpRequestMessage request = CreateRequest(HttpMethod.Post, "v1/" + options.ModelEndpoint);
@@ -219,16 +246,45 @@ public sealed class FluxClient
         };
     }
 
-    private static string GetLogoInstruction(string? chainLogoBase64, bool hasPostImage)
+    private static string BuildCharacterReferencePrompt(string imagePrompt, string style,
+        string logoInstruction)
+    {
+        return "Image 1 defines the exact identity of the single dominant person. "
+            + "Create a recognizable polished 2D editorial-cartoon likeness of that same person, preserving facial proportions, "
+            + "eye and eyebrow shape, nose, mouth, smile, hairstyle, skin tone, and every visible mole, beauty mark, freckle, "
+            + "or distinctive facial detail in the same location. Frame the person close enough for facial details to remain visible. "
+            + "Show that same person in this Post-specific scene: " + imagePrompt + ". "
+            + style
+            + logoInstruction
+            + " Clean rounded dark line art, bright aqua, turquoise, coral and golden palette, gentle cel shading, "
+            + "subtle paper texture, text-free composition. No URLs, token symbols, pseudo-text, or watermark.";
+    }
+
+    private static string GetLogoInstruction(string? chainLogoBase64, bool hasPostImage,
+        bool hasCharacterImage)
     {
         if (string.IsNullOrWhiteSpace(chainLogoBase64))
         {
             return string.Empty;
         }
 
-        string reference = hasPostImage ? "second input reference image" : "input reference image";
+        string reference = hasPostImage
+            ? (hasCharacterImage ? "third input reference image" : "second input reference image")
+            : (hasCharacterImage ? "second input reference image" : "input reference image");
+        if (hasCharacterImage && !hasPostImage)
+        {
+            return " Image 2 is the exact launch-chain logo; print it accurately exactly once on one suitable physical object and nowhere else.";
+        }
+
         return " Use the " + reference
             + " as the exact launch-chain logo. Reproduce its geometry accurately once on a physical object in the scene; do not redesign or approximate it.";
+    }
+
+    private static void AddReferenceImage(Dictionary<string, object> requestBody, int imageNumber,
+        string imageBase64)
+    {
+        string key = imageNumber == 1 ? "input_image" : "input_image_" + imageNumber;
+        requestBody[key] = imageBase64;
     }
 
     private async Task<string> WaitForImageAsync(string pollingUrl, CancellationToken cancellationToken)

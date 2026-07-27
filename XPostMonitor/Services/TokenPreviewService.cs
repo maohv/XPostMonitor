@@ -40,8 +40,15 @@ public sealed class TokenPreviewService
         return await CreateAsync(postText, imageUrl, receivedAt, chain, true, cancellationToken);
     }
 
-    public async Task<TokenPreviewDto> CreateAsync(string? postText, string? imageUrl, DateTimeOffset receivedAt,
+    public Task<TokenPreviewDto> CreateAsync(string? postText, string? imageUrl, DateTimeOffset receivedAt,
         string? chain, bool expiresAfterTenSeconds, CancellationToken cancellationToken)
+    {
+        return CreateAsync(postText, imageUrl, receivedAt, chain, null, expiresAfterTenSeconds,
+            cancellationToken);
+    }
+
+    public async Task<TokenPreviewDto> CreateAsync(string? postText, string? imageUrl, DateTimeOffset receivedAt,
+        string? chain, string? username, bool expiresAfterTenSeconds, CancellationToken cancellationToken)
     {
         TimeSpan age = DateTimeOffset.UtcNow - receivedAt;
         if (age < TimeSpan.Zero)
@@ -63,13 +70,16 @@ public sealed class TokenPreviewService
 
         string? imageStyle = GetChainImageStyle(chain);
         string? chainLogoBase64 = GetChainLogoBase64(chain);
+        string? characterImageBase64 = string.IsNullOrWhiteSpace(imageUrl)
+            ? GetCharacterImageBase64(username)
+            : null;
         Task<(TokenDraftDto Draft, double Seconds)> metadataTask = CreateMetadataAsync(postText, imageUrl,
             imageStyle, deadline.Token);
 
         if (string.IsNullOrWhiteSpace(imageUrl))
         {
-            return await CreateFromTextAsync(metadataTask, receivedAt, imageStyle, chainLogoBase64, deadline,
-                expiresAfterTenSeconds, cancellationToken);
+            return await CreateFromTextAsync(metadataTask, receivedAt, imageStyle, characterImageBase64,
+                chainLogoBase64, deadline, expiresAfterTenSeconds, cancellationToken);
         }
 
         Task<(FluxImageDto Image, double Seconds)> imageTask = CreateImageAsync(postText, imageUrl, imageStyle,
@@ -199,15 +209,15 @@ public sealed class TokenPreviewService
     }
 
     private async Task<TokenPreviewDto> CreateFromTextAsync(Task<(TokenDraftDto Draft, double Seconds)> metadataTask,
-        DateTimeOffset receivedAt, string? imageStyle, string? chainLogoBase64, CancellationTokenSource deadline,
-        bool expiresAfterTenSeconds, CancellationToken cancellationToken)
+        DateTimeOffset receivedAt, string? imageStyle, string? characterImageBase64, string? chainLogoBase64,
+        CancellationTokenSource deadline, bool expiresAfterTenSeconds, CancellationToken cancellationToken)
     {
         try
         {
             (TokenDraftDto draft, double openAiSeconds) = await metadataTask;
             Stopwatch timer = Stopwatch.StartNew();
             FluxImageDto image = await fluxClient.CreateTokenImageFromPromptAsync(draft.ImagePrompt, imageStyle,
-                chainLogoBase64, deadline.Token);
+                characterImageBase64, chainLogoBase64, deadline.Token);
             timer.Stop();
 
             if (expiresAfterTenSeconds && DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
@@ -238,26 +248,80 @@ public sealed class TokenPreviewService
             "bsc" => "Keep natural subject colors dominant with BNB yellow #F0B90B, charcoal black, and white accents. Naturally print one clearly recognizable black BNB Chain geometric logo on a yellow physical object that belongs in the scene, such as a cap, shirt, backpack, phone case, vehicle, or prop. The logo must follow the object's perspective and material, never float separately, never become a watermark, and include no brand text.",
             "base" => "Keep natural subject colors dominant. Add subtle Base blue #0052FF, white, and deep navy accents only in lighting, edges, or background details.",
             "sol" => "Keep natural subject colors dominant. Add subtle Solana purple #9945FF, mint green #14F195, and cyan accents only in lighting, edges, or background details.",
-            "robinhood" => "Keep natural subject colors dominant. Add subtle Robinhood green #00C805, black, and white accents only in lighting, edges, or background details.",
-            "stable" => "Keep natural subject colors dominant. Add subtle Stable emerald green #00D395, cool teal, white, and graphite accents only in lighting, edges, or background details.",
+            "robinhood" => "Keep natural subject colors dominant with Robinhood neon green, black, and white accents. Naturally print one clearly recognizable black Robinhood feather logo on a neon-green physical object that belongs in the scene, such as a cap, shirt, backpack, phone case, vehicle, or prop. The logo must follow the object's perspective and material, never float separately, never become a watermark, and include no brand text.",
+            "stable" => "Keep natural subject colors dominant with Stable dark green, pale mint, white, and graphite accents. Naturally print one clearly recognizable pale-mint Stable symbol on a dark-green physical object that belongs in the scene, such as a cap, shirt, backpack, phone case, vehicle, or prop. The logo must follow the object's perspective and material, never float separately, never become a watermark, and include no brand text.",
             _ => null
         };
     }
 
     private static string? GetChainLogoBase64(string? chain)
     {
-        if (!string.Equals(chain, "bsc", StringComparison.OrdinalIgnoreCase))
+        // Chọn đúng file logo theo chain. Chain chưa có logo thì giữ nguyên luồng cũ.
+        string? logoFileName = chain?.ToLowerInvariant() switch
+        {
+            "bsc" => "bnb.png",
+            "robinhood" => "robinhood.png",
+            "stable" => "stable.png",
+            _ => null
+        };
+
+        if (logoFileName == null)
         {
             return null;
         }
 
-        string path = Path.Combine(AppContext.BaseDirectory, "Assets", "ChainLogos", "bnb.png");
+        string path = Path.Combine(AppContext.BaseDirectory, "Assets", "ChainLogos", logoFileName);
         if (!File.Exists(path))
         {
-            throw new InvalidOperationException("BNB logo reference file was not found.");
+            throw new InvalidOperationException($"Chain logo reference file was not found: {logoFileName}");
         }
 
         return Convert.ToBase64String(File.ReadAllBytes(path));
+    }
+
+    private static string? GetCharacterImageBase64(string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            return null;
+        }
+
+        // Username X chỉ có chữ, số và dấu gạch dưới. Tên lạ sẽ bị bỏ qua để giữ an toàn.
+        string fileName = username.Trim().TrimStart('@').ToLowerInvariant();
+        if (fileName.Length == 0 || fileName.Any(character => !char.IsLetterOrDigit(character)
+            && character != '_'))
+        {
+            return null;
+        }
+
+        string folder = Path.Combine(AppContext.BaseDirectory, "Assets", "CharacterReferences");
+        string? path = new[] { ".png", ".jpg", ".jpeg" }
+            .Select(extension => Path.Combine(folder, fileName + extension))
+            .FirstOrDefault(File.Exists);
+        if (path == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            byte[] image = File.ReadAllBytes(path);
+            bool isPng = image.Length >= 8
+                && image[0] == 137 && image[1] == 80 && image[2] == 78 && image[3] == 71
+                && image[4] == 13 && image[5] == 10 && image[6] == 26 && image[7] == 10;
+            bool isJpeg = image.Length >= 3
+                && image[0] == 255 && image[1] == 216 && image[2] == 255;
+            return isPng || isJpeg ? Convert.ToBase64String(image) : null;
+        }
+        catch (IOException)
+        {
+            // Ảnh lỗi hoặc đang bị khóa thì bỏ qua, luồng tạo token vẫn tiếp tục như cũ.
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private static (string? Text, string? ImageUrl) ParseInput(string? input)

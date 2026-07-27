@@ -18,15 +18,20 @@ public static class TokenPostContext
         "哈哈", "哈哈哈", "呵呵", "谢谢", "謝謝", "好的", "好", "是", "对", "對"
     ];
 
+    // Tìm username của người đăng hiện tại để lấy đúng ảnh nhân vật tham chiếu.
+    public static string? GetAuthorUsername(XStreamPostResponse response)
+    {
+        string? authorId = response.Data?.AuthorId;
+        return response.Includes?.Users?
+            .FirstOrDefault(user => user.Id == authorId)?
+            .Username;
+    }
+
     // Reply có ảnh riêng vẫn đáng phân tích vì câu chuyện có thể nằm trong ảnh.
     public static bool IsMeaningfulReply(XStreamPostResponse response, string? ownPhotoUrl)
     {
         XPost post = response.Data!;
         string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
-        if (referenceType != "replied_to" || !string.IsNullOrWhiteSpace(ownPhotoUrl))
-        {
-            return true;
-        }
 
         string textWithoutMentionsAndLinks = string.Join(' ', post.Text
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -41,6 +46,18 @@ public static class TokenPostContext
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
         int meaningfulCharacters = normalized.Count(char.IsLetterOrDigit);
+
+        // Post chỉ có emoji thì bỏ qua; có chữ hoặc có ảnh riêng thì vẫn xử lý bình thường.
+        if (meaningfulCharacters == 0 && string.IsNullOrWhiteSpace(ownPhotoUrl))
+        {
+            return false;
+        }
+
+        if (referenceType != "replied_to" || !string.IsNullOrWhiteSpace(ownPhotoUrl))
+        {
+            return true;
+        }
+
         return meaningfulCharacters >= 2 && !RepliesWithoutStory.Contains(normalized);
     }
 
