@@ -82,11 +82,18 @@ public sealed class AutoTradingSettingsService
 
         try
         {
-            GmgnSigningKeyPair keys = await gmgnClient.GenerateSigningKeyAsync(cancellationToken);
             using IServiceScope scope = scopeFactory.CreateScope();
             AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            TradingWorker worker = await GetOrCreateWorkerAsync(db, chatId, slotNumber, cancellationToken);
-            worker.EncryptedGmgnPrivateKey = protector.Protect(keys.PrivateKey);
+            TradingWorker? worker = await db.TradingWorkers
+                .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                    cancellationToken);
+            if (!HasEvmWallet(worker))
+            {
+                return text.Get(language, "ConfigureWalletBeforeGmgn", slotNumber);
+            }
+
+            GmgnSigningKeyPair keys = await gmgnClient.GenerateSigningKeyAsync(cancellationToken);
+            worker!.EncryptedGmgnPrivateKey = protector.Protect(keys.PrivateKey);
             worker.EncryptedGmgnApiKey = string.Empty;
             worker.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(cancellationToken);
@@ -116,8 +123,14 @@ public sealed class AutoTradingSettingsService
 
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        TradingWorker worker = await GetOrCreateWorkerAsync(db, chatId, slotNumber, cancellationToken);
-        if (!TryUnprotect(worker.EncryptedGmgnPrivateKey, out _))
+        TradingWorker? worker = await db.TradingWorkers
+            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                cancellationToken);
+        if (!HasEvmWallet(worker))
+        {
+            return text.Get(language, "ConfigureWalletBeforeGmgn", slotNumber);
+        }
+        if (!TryUnprotect(worker!.EncryptedGmgnPrivateKey, out _))
         {
             return text.Get(language, "GenerateFirst");
         }
@@ -265,31 +278,15 @@ public sealed class AutoTradingSettingsService
         return Enumerable.Range(1, workerOptions.MaxWorkers).Select(slot =>
         {
             TradingWorker? worker = workers.FirstOrDefault(item => item.SlotNumber == slot);
-            return new GmgnWorkerState(slot, TryGetCredentials(worker, out _));
+            return new GmgnWorkerState(slot, HasEvmWallet(worker), TryGetCredentials(worker, out _));
         }).ToList();
     }
 
-    private static async Task<TradingWorker> GetOrCreateWorkerAsync(AppDbContext db, long chatId,
-        int slotNumber, CancellationToken cancellationToken)
+    private static bool HasEvmWallet(TradingWorker? worker)
     {
-        TradingWorker? worker = await db.TradingWorkers
-            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
-                cancellationToken);
-        if (worker != null)
-        {
-            return worker;
-        }
-
-        DateTime now = DateTime.UtcNow;
-        worker = new TradingWorker
-        {
-            ChatId = chatId,
-            SlotNumber = slotNumber,
-            CreatedAtUtc = now,
-            UpdatedAtUtc = now
-        };
-        db.TradingWorkers.Add(worker);
-        return worker;
+        return worker != null
+            && !string.IsNullOrWhiteSpace(worker.EvmWalletAddress)
+            && !string.IsNullOrWhiteSpace(worker.EncryptedEvmPrivateKey);
     }
 
     private bool TryGetCredentials(TradingWorker? worker, out GmgnCredentials credentials)
@@ -336,4 +333,4 @@ public sealed class AutoTradingSettingsService
 
 public sealed record GmgnCredentials(string ApiKey, string PrivateKey);
 
-public sealed record GmgnWorkerState(int SlotNumber, bool HasCredentials);
+public sealed record GmgnWorkerState(int SlotNumber, bool HasWallet, bool HasCredentials);

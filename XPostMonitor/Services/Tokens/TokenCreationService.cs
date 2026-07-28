@@ -31,7 +31,7 @@ public sealed class TokenCreationService : BackgroundService
     private readonly BotTextService text;
     private readonly TradingWorkersOptions workerOptions;
     private readonly Channel<TokenCreationRequest> queue = Channel.CreateUnbounded<TokenCreationRequest>();
-    private readonly ConcurrentDictionary<string, byte> manualJobs = new();
+    private readonly ConcurrentDictionary<string, int> manualJobs = new();
 
     public TokenCreationService(TokenSettingsService tokenSettings, TokenPreviewService tokenPreviewService,
         FourMemeClient fourMemeClient, DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient,
@@ -75,7 +75,8 @@ public sealed class TokenCreationService : BackgroundService
         foreach (TradingWorkerWallet worker in workers)
         {
             await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
-                sourceLanguage, photoUrl, postUrl, chain, launchpad, anchor, useOriginalImage, creatorTaxPercent,
+                sourceLanguage, photoUrl, null, postUrl, chain, launchpad, anchor, useOriginalImage,
+                creatorTaxPercent,
                 enableAutoTrading, BotTextService.Normalize(language), receivedAt, false, null, worker.WorkerId,
                 worker.SlotNumber, workerCount), cancellationToken);
         }
@@ -83,21 +84,34 @@ public sealed class TokenCreationService : BackgroundService
 
     public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string? username, string postText,
         string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string? anchor,
-        int creatorTaxPercent, string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, int workerCount, byte[]? customImage, string language,
+        CancellationToken cancellationToken)
     {
+        workerCount = Math.Clamp(workerCount, 1, workerOptions.MaxWorkers);
         string jobKey = chatId + ":" + postId + ":" + chain + ":" + launchpad + ":" + anchor;
-        if (!manualJobs.TryAdd(jobKey, 0))
+        if (!manualJobs.TryAdd(jobKey, workerCount))
         {
             return false;
         }
 
         try
         {
-            await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
-                sourceLanguage, photoUrl, postUrl, chain, launchpad, anchor, !string.IsNullOrWhiteSpace(photoUrl),
-                creatorTaxPercent, true, BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey,
-                null, 1, 1),
-                cancellationToken);
+            IReadOnlyList<TradingWorkerWallet> workers = await evmWalletService.GetReadyWorkersAsync(chatId,
+                workerCount, cancellationToken);
+            if (workers.Count != workerCount)
+            {
+                manualJobs.TryRemove(jobKey, out _);
+                return false;
+            }
+
+            foreach (TradingWorkerWallet worker in workers)
+            {
+                await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
+                    sourceLanguage, photoUrl, customImage, postUrl, chain, launchpad, anchor,
+                    customImage != null || !string.IsNullOrWhiteSpace(photoUrl), creatorTaxPercent, true,
+                    BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey, worker.WorkerId,
+                    worker.SlotNumber, workerCount), cancellationToken);
+            }
             return true;
         }
         catch
@@ -132,7 +146,7 @@ public sealed class TokenCreationService : BackgroundService
             {
                 if (request.ManualJobKey != null)
                 {
-                    manualJobs.TryRemove(request.ManualJobKey, out _);
+                    CompleteManualJob(request.ManualJobKey);
                 }
             }
         }
@@ -173,7 +187,10 @@ public sealed class TokenCreationService : BackgroundService
         }
 
         string aiPostText = AddSourceLanguage(request.PostText, request.SourceLanguage);
-        TokenPreviewDto preview = request.UseOriginalImage
+        TokenPreviewDto preview = request.CustomImage != null
+            ? await tokenPreviewService.CreateWithUploadedImageAsync(aiPostText, request.CustomImage,
+                request.ReceivedAt, request.Chain, cancellationToken)
+            : request.UseOriginalImage
             ? await tokenPreviewService.CreateWithOriginalImageAsync(aiPostText, request.PhotoUrl,
                 request.ReceivedAt, request.Chain, !request.IsManual, cancellationToken)
             : await tokenPreviewService.CreateAsync(aiPostText, request.PhotoUrl,
@@ -286,8 +303,17 @@ public sealed class TokenCreationService : BackgroundService
             : "[SOURCE_LANGUAGE=" + sourceLanguage.ToLowerInvariant() + "]\n" + postText;
     }
 
+    private void CompleteManualJob(string jobKey)
+    {
+        int remaining = manualJobs.AddOrUpdate(jobKey, 0, (_, current) => Math.Max(0, current - 1));
+        if (remaining == 0)
+        {
+            manualJobs.TryRemove(jobKey, out _);
+        }
+    }
+
     private sealed record TokenCreationRequest(long ChatId, string PostId, string? Username, string PostText,
-        string? SourceLanguage, string? PhotoUrl, string PostUrl, string Chain, string Launchpad,
+        string? SourceLanguage, string? PhotoUrl, byte[]? CustomImage, string PostUrl, string Chain, string Launchpad,
         string? Anchor, bool UseOriginalImage, int CreatorTaxPercent, bool EnableAutoTrading, string Language,
         DateTimeOffset ReceivedAt, bool IsManual, string? ManualJobKey, long? TradingWorkerId, int WorkerSlot,
         int VariantCount);

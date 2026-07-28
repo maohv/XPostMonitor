@@ -71,6 +71,10 @@
   "ShowPrivateKey": "Hiện private key",
   "ImportEvmPrivateKey": "Nhập private key",
   "ReplaceEvmPrivateKey": "Thay private key",
+  "DeleteEvmWallet": "Xóa ví",
+  "ConfirmDeleteEvmWallet": "Xóa ví của Worker {0}?\n\nĐịa chỉ: <code>{1}</code>\n\nBot sẽ xóa vĩnh viễn private key EVM và cấu hình GMGN của Worker này. Auto Create sẽ bị tắt. Hãy sao lưu private key và đảm bảo không còn lệnh tự động nào đang chạy.",
+  "EvmWalletDeleted": "Đã xóa ví và cấu hình GMGN của Worker {0}. Auto Create đã bị tắt.",
+  "ConfigureWalletBeforeGmgn": "Hãy tạo hoặc nhập ví EVM cho Worker {0} trước khi cấu hình GMGN.",
   "SendEvmPrivateKey": "Gửi private key EVM. Bot sẽ xóa tin nhắn sau khi lưu. Key mới sẽ thay thế ví hiện tại và Auto Create sẽ được tắt.",
   "InvalidEvmPrivateKey": "Private key EVM không hợp lệ. Bot chưa thay đổi dữ liệu.",
   "EvmWalletImportFailed": "Không thể nhập ví EVM: {0}",
@@ -169,4 +173,12 @@
   ,"TokensPerPost": "Số token mỗi Post"
   ,"ConfigureGmgnFirst": "Hãy cấu hình GMGN cho Ví {0} trước khi bật Auto Trading."
   ,"ConfigureGmgn": "Cấu hình GMGN"
+  ,"ChooseManualWorkerCount": "Chọn số ví sẽ cùng tạo token này:"
+  ,"ChooseManualImage": "Chọn ảnh token:"
+  ,"UseAutomaticImage": "Dùng ảnh Post / ảnh AI"
+  ,"UploadCustomImage": "Tải ảnh riêng"
+  ,"SendCustomTokenImage": "Hãy gửi một ảnh JPG hoặc PNG ngay bây giờ. Bot sẽ dùng nguyên ảnh đó làm avatar token."
+  ,"CustomImageInvalid": "Hãy gửi ảnh JPG hoặc PNG."
+  ,"CustomImageFailed": "Không thể dùng ảnh riêng: {0}"
+  ,"CustomImageNotExpected": "Hiện bot không chờ ảnh token riêng."
 }

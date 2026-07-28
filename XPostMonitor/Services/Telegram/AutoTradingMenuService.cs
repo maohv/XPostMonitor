@@ -164,6 +164,17 @@ public sealed class AutoTradingMenuService
             message = notice + "\n\n" + message;
         }
 
+        if (!state.HasWallet)
+        {
+            await telegramApi.SendButtonsAsync(chatId,
+                text.Get(language, "ConfigureWalletBeforeGmgn", slotNumber),
+                [[new TelegramInlineButton(text.Get(language, "EvmWallet"), "settings:evm:" + slotNumber)],
+                 [new TelegramInlineButton(text.Get(language, "Back"), "trading:show"),
+                  new TelegramInlineButton(text.Get(language, "Close"), "trading:close")]],
+                cancellationToken);
+            return;
+        }
+
         IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
         [
             [new TelegramInlineButton(text.Get(language, "ConnectGmgn"), "trading:connect:" + slotNumber)],

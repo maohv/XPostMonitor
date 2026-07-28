@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
@@ -24,14 +25,16 @@ public sealed class ManualTokenMenuService
     private readonly PonsRobinhoodOptions ponsRobinhoodOptions;
     private readonly BotTextService text;
     private readonly TokenPreviewService tokenPreviewService;
+    private readonly TradingWorkersOptions workerOptions;
     private readonly bool enableManualTokenCreation;
+    private readonly ConcurrentDictionary<long, PendingManualImage> pendingImages = new();
 
     public ManualTokenMenuService(TelegramApiClient telegramApi, XApiClient xApiClient,
         TokenSettingsService tokenSettings, TokenCreationService tokenCreation,
         EvmWalletService evmWalletService, FourMemeOptions fourMemeOptions,
         DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions,
         PonsRobinhoodOptions ponsRobinhoodOptions, BotTextService text,
-        TokenPreviewService tokenPreviewService, BotOptions botOptions)
+        TokenPreviewService tokenPreviewService, BotOptions botOptions, TradingWorkersOptions workerOptions)
     {
         this.telegramApi = telegramApi;
         this.xApiClient = xApiClient;
@@ -44,11 +47,15 @@ public sealed class ManualTokenMenuService
         this.ponsRobinhoodOptions = ponsRobinhoodOptions;
         this.text = text;
         this.tokenPreviewService = tokenPreviewService;
+        this.workerOptions = workerOptions;
         enableManualTokenCreation = botOptions.EnableManualTokenCreation;
     }
 
     public async Task StartAsync(long chatId, string link, string language, CancellationToken cancellationToken)
     {
+        // Link mới hủy yêu cầu ảnh cũ để không dùng nhầm ảnh cho Post trước.
+        pendingImages.TryRemove(chatId, out _);
+
         string? postId = XPostLinkParser.ParsePostId(link);
         if (postId == null)
         {
@@ -74,6 +81,7 @@ public sealed class ManualTokenMenuService
 
         if (data == "manual:cancel")
         {
+            pendingImages.TryRemove(chatId, out _);
             return;
         }
 
@@ -106,10 +114,11 @@ public sealed class ManualTokenMenuService
             return;
         }
 
-        string[] route = parts[3].Split(',', 3);
-        string? anchor = route.Length == 3 && route[1] == "long" ? route[2] : null;
-        int creatorTaxPercent = route.Length == 3 && route[1] == "fourmeme"
+        string[] route = parts[3].Split(',');
+        string? anchor = route.Length >= 3 && route[1] == "long" ? route[2] : null;
+        int creatorTaxPercent = route.Length >= 3 && route[1] == "fourmeme"
             && int.TryParse(route[2], out int tax) ? tax : 0;
+        int workerCount = ReadWorkerCount(parts[1], route);
         if (parts[1] == "market" && route.Length >= 2 && LaunchpadCatalog.IsValid(route[0], route[1]))
         {
             await ShowLongAnchorsAsync(chatId, postId, route[0], route[1], language, cancellationToken);
@@ -133,10 +142,27 @@ public sealed class ManualTokenMenuService
             await ShowConfirmationAsync(chatId, postId, route[0], route[1], anchor, creatorTaxPercent,
                 language, cancellationToken);
         }
-        else if (parts[1] == "create")
+        else if (parts[1] == "workers" && workerCount > 0)
+        {
+            await ShowImageChoiceAsync(chatId, postId, route[0], route[1], anchor, creatorTaxPercent,
+                workerCount, language, cancellationToken);
+        }
+        else if (parts[1] == "upload" && workerCount > 0)
+        {
+            pendingImages[chatId] = new PendingManualImage(postId, route[0], route[1], anchor,
+                creatorTaxPercent, workerCount);
+            await telegramApi.SendButtonsAsync(chatId, text.Get(language, "SendCustomTokenImage"),
+                [[new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]],
+                cancellationToken);
+        }
+        else if (parts[1] == "create" && workerCount > 0)
         {
             await CreateAsync(chatId, postId, route[0], route[1], anchor, creatorTaxPercent,
-                language, cancellationToken);
+                workerCount, null, language, cancellationToken);
+        }
+        else
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualExpired"), cancellationToken);
         }
     }
 
@@ -240,21 +266,61 @@ public sealed class ManualTokenMenuService
         {
             message += "\n" + text.Get(language, "CreatorFee") + ": 70%";
         }
-        IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
-        [
-            [new TelegramInlineButton(text.Get(language, live ? "CreateRealToken" : "RunTokenTest"),
-                "manual:create:" + postId + ":" + chain + "," + dex
-                    + (anchor != null ? "," + anchor : dex == "fourmeme" ? "," + creatorTaxPercent : string.Empty))],
-            [new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]
-        ];
+        message += "\n\n" + text.Get(language, "ChooseManualWorkerCount");
+        string route = BuildRoute(chain, dex, anchor, creatorTaxPercent);
+        List<IReadOnlyList<TelegramInlineButton>> buttons = Enumerable.Range(1, workerOptions.MaxWorkers)
+            .Select(count => (IReadOnlyList<TelegramInlineButton>)
+                [new TelegramInlineButton(text.Get(language, "Worker") + " x" + count,
+                    "manual:workers:" + postId + ":" + route + "," + count)])
+            .ToList();
+        buttons.Add([new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]);
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
 
+    private async Task ShowImageChoiceAsync(long chatId, string postId, string chain, string dex, string? anchor,
+        int creatorTaxPercent, int workerCount, string language, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<TradingWorkerWallet> workers = await evmWalletService.GetReadyWorkersAsync(chatId,
+            workerCount, cancellationToken);
+        if (workers.Count != workerCount)
+        {
+            int missingSlot = Enumerable.Range(1, workerCount)
+                .First(slot => workers.All(worker => worker.SlotNumber != slot));
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ConfigureWorkerFirst", missingSlot),
+                cancellationToken);
+            return;
+        }
+
+        string route = BuildRoute(chain, dex, anchor, creatorTaxPercent) + "," + workerCount;
+        IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
+        [
+            [new TelegramInlineButton(text.Get(language, "UseAutomaticImage"),
+                "manual:create:" + postId + ":" + route)],
+            [new TelegramInlineButton(text.Get(language, "UploadCustomImage"),
+                "manual:upload:" + postId + ":" + route)],
+            [new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]
+        ];
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseManualImage"), buttons,
+            cancellationToken);
+    }
+
     private async Task CreateAsync(long chatId, string postId, string chain, string dex, string? anchor,
-        int creatorTaxPercent, string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, int workerCount, byte[]? customImage, string language,
+        CancellationToken cancellationToken)
     {
         try
         {
+            IReadOnlyList<TradingWorkerWallet> workers = await evmWalletService.GetReadyWorkersAsync(chatId,
+                workerCount, cancellationToken);
+            if (workers.Count != workerCount)
+            {
+                int missingSlot = Enumerable.Range(1, workerCount)
+                    .First(slot => workers.All(worker => worker.SlotNumber != slot));
+                await telegramApi.SendMessageAsync(chatId,
+                    text.Get(language, "ConfigureWorkerFirst", missingSlot), cancellationToken);
+                return;
+            }
+
             XStreamPostResponse response = await xApiClient.GetPostAsync(postId, cancellationToken);
             XPost post = response.Data!;
             string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
@@ -276,8 +342,8 @@ public sealed class ManualTokenMenuService
             string tokenText = TokenPostContext.BuildAiInput(response);
             string? username = TokenPostContext.GetAuthorUsername(response);
             bool queued = await tokenCreation.QueueManualAsync(chatId, postId, username, tokenText,
-                post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, creatorTaxPercent, language,
-                cancellationToken);
+                post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, creatorTaxPercent,
+                workerCount, customImage, language, cancellationToken);
             if (!queued)
             {
                 await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualAlreadyRunning"),
@@ -287,13 +353,65 @@ public sealed class ManualTokenMenuService
 
             bool live = IsLive(dex);
             string queuedText = live ? "ManualQueued" : "TokenTestStarted";
-            await telegramApi.SendMessageAsync(chatId, text.Get(language, queuedText), cancellationToken);
+            string message = text.Get(language, queuedText) + "\n"
+                + text.Get(language, "ParallelWallets") + ": " + workerCount;
+            await telegramApi.SendMessageAsync(chatId, message, cancellationToken);
         }
         catch (Exception exception)
         {
             await telegramApi.SendMessageAsync(chatId,
                 text.Get(language, "ManualPostFailed", exception.Message), cancellationToken);
         }
+    }
+
+    public async Task<bool> HandlePhotoAsync(TelegramMessage message, string language,
+        CancellationToken cancellationToken)
+    {
+        if (!pendingImages.TryRemove(message.Chat.Id, out PendingManualImage? pending))
+        {
+            return false;
+        }
+
+        TelegramPhotoSize? photo = message.Photo?
+            .OrderByDescending(item => (long)item.Width * item.Height)
+            .FirstOrDefault();
+        if (photo == null)
+        {
+            await telegramApi.SendMessageAsync(message.Chat.Id,
+                text.Get(language, "CustomImageInvalid"), cancellationToken);
+            return true;
+        }
+
+        try
+        {
+            byte[] image = await telegramApi.DownloadPhotoAsync(photo.FileId, cancellationToken);
+            await CreateAsync(message.Chat.Id, pending.PostId, pending.Chain, pending.Dex, pending.Anchor,
+                pending.CreatorTaxPercent, pending.WorkerCount, image, language, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await telegramApi.SendMessageAsync(message.Chat.Id,
+                text.Get(language, "CustomImageFailed", exception.Message), cancellationToken);
+        }
+        return true;
+    }
+
+    private int ReadWorkerCount(string action, string[] route)
+    {
+        if (action is not ("workers" or "upload" or "create"))
+        {
+            return 1;
+        }
+
+        return int.TryParse(route[^1], out int count) && count >= 1 && count <= workerOptions.MaxWorkers
+            ? count
+            : 0;
+    }
+
+    private static string BuildRoute(string chain, string dex, string? anchor, int creatorTaxPercent)
+    {
+        return chain + "," + dex
+            + (anchor != null ? "," + anchor : dex == "fourmeme" ? "," + creatorTaxPercent : string.Empty);
     }
 
     // Lấy dữ liệu thật từ link X rồi chạy phần tạo ảnh và metadata, không gọi launchpad.
@@ -370,4 +488,7 @@ public sealed class ManualTokenMenuService
             ? ponsRobinhoodOptions.EnableRealTransactions
             : longRobinhoodOptions.EnableRealTransactions;
     }
+
+    private sealed record PendingManualImage(string PostId, string Chain, string Dex, string? Anchor,
+        int CreatorTaxPercent, int WorkerCount);
 }

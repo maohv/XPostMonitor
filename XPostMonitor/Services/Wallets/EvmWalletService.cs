@@ -73,6 +73,46 @@ public sealed class EvmWalletService
         }
     }
 
+    // Xóa thông tin ví và GMGN của đúng Worker, nhưng giữ lại lịch sử giao dịch trong DB.
+    public async Task<bool> DeleteAsync(long chatId, int slotNumber, CancellationToken cancellationToken)
+    {
+        ValidateSlot(slotNumber);
+        SemaphoreSlim walletLock = walletLocks.GetOrAdd((chatId, slotNumber), _ => new SemaphoreSlim(1, 1));
+        await walletLock.WaitAsync(cancellationToken);
+        try
+        {
+            using IServiceScope scope = scopeFactory.CreateScope();
+            AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            TradingWorker? worker = await db.TradingWorkers
+                .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                    cancellationToken);
+            if (worker == null)
+            {
+                return false;
+            }
+
+            worker.EvmWalletAddress = string.Empty;
+            worker.EncryptedEvmPrivateKey = string.Empty;
+            worker.EncryptedGmgnApiKey = string.Empty;
+            worker.EncryptedGmgnPrivateKey = string.Empty;
+            worker.UpdatedAtUtc = DateTime.UtcNow;
+
+            UserTradingSettings? settings = await db.UserTradingSettings.FindAsync([chatId],
+                cancellationToken);
+            if (settings != null)
+            {
+                settings.EnableTokenCreation = false;
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            walletLock.Release();
+        }
+    }
+
     private async Task<EvmWalletCredentials> ImportInternalAsync(long chatId, int slotNumber, string privateKey,
         CancellationToken cancellationToken)
     {

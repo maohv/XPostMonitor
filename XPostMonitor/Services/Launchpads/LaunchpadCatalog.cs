@@ -5,7 +5,7 @@ public static class LaunchpadCatalog
 {
     public static readonly IReadOnlyList<LaunchpadNetwork> All =
     [
-        new("bsc", "BSC", "BNB", 0.01m, "bsc", [new("fourmeme", "Four.Meme")]),
+        new("bsc", "BSC", "BNB", 0.05m, "bsc", [new("fourmeme", "Four.Meme")]),
         new("stable", "Stable", "USDT0", 0.01m, "stable", [new("dyorswap", "DYOR Swap")]),
         new("robinhood", "Robinhood", "ETH", 0.005m, "robinhood",
             [new("long", "Long"), new("pons", "pons")])

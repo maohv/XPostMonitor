@@ -89,6 +89,25 @@ public sealed class TelegramApiClient
         await CheckResponseAsync(response, cancellationToken);
     }
 
+    // Tải ảnh user vừa gửi cho bot để dùng nguyên ảnh đó làm avatar token.
+    public async Task<byte[]> DownloadPhotoAsync(string fileId, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage fileResponse = await httpClient.PostAsJsonAsync(GetUrl("getFile"),
+            new { file_id = fileId }, cancellationToken);
+        TelegramFileResponse? file = await fileResponse.Content
+            .ReadFromJsonAsync<TelegramFileResponse>(cancellationToken);
+        CheckResponse(fileResponse, file);
+
+        string filePath = file!.Result?.FilePath ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            throw new InvalidOperationException("Telegram did not return the image path.");
+        }
+
+        string url = "https://api.telegram.org/file/bot" + telegramToken + "/" + filePath;
+        return await httpClient.GetByteArrayAsync(url, cancellationToken);
+    }
+
     public async Task SendPhotoAsync(long chatId, byte[] photo, string caption, CancellationToken cancellationToken)
     {
         using MultipartFormDataContent form = new MultipartFormDataContent();

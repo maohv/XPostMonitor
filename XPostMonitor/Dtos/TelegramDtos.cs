@@ -24,6 +24,18 @@ public sealed class TelegramChatMemberResponse : TelegramBasicResponse
     public TelegramChatMember? Result { get; set; }
 }
 
+public sealed class TelegramFileResponse : TelegramBasicResponse
+{
+    [JsonPropertyName("result")]
+    public TelegramFile? Result { get; set; }
+}
+
+public sealed class TelegramFile
+{
+    [JsonPropertyName("file_path")]
+    public string FilePath { get; set; } = string.Empty;
+}
+
 public sealed class TelegramChatMember
 {
     [JsonPropertyName("status")]
@@ -55,6 +67,27 @@ public sealed class TelegramMessage
 
     [JsonPropertyName("text")]
     public string? Text { get; set; }
+
+    [JsonPropertyName("caption")]
+    public string? Caption { get; set; }
+
+    [JsonPropertyName("photo")]
+    public List<TelegramPhotoSize>? Photo { get; set; }
+}
+
+public sealed class TelegramPhotoSize
+{
+    [JsonPropertyName("file_id")]
+    public string FileId { get; set; } = string.Empty;
+
+    [JsonPropertyName("width")]
+    public int Width { get; set; }
+
+    [JsonPropertyName("height")]
+    public int Height { get; set; }
+
+    [JsonPropertyName("file_size")]
+    public long? FileSize { get; set; }
 }
 
 public sealed class TelegramCallbackQuery

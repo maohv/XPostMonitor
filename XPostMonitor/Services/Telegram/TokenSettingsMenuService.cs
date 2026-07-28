@@ -127,6 +127,15 @@ public sealed class TokenSettingsMenuService
                     CloseButtons(language), cancellationToken);
                 return;
 
+            case "evmdelete":
+                await ShowDeleteEvmWalletConfirmationAsync(chatId, ReadSlot(parts), language,
+                    cancellationToken);
+                return;
+
+            case "evmdeleteconfirm":
+                await DeleteEvmWalletAsync(chatId, ReadSlot(parts), language, cancellationToken);
+                return;
+
             case "fourmeme":
                 await CheckFourMemeAsync(chatId, language, cancellationToken);
                 return;
@@ -255,10 +264,10 @@ public sealed class TokenSettingsMenuService
                 message = notice + "\n\n" + message;
             }
             await telegramApi.SendButtonsAsync(chatId, message,
-                [[new TelegramInlineButton(text.Get(language, "CreateEvmWallet"), "settings:evmcreate:" + slotNumber)],
-                 [new TelegramInlineButton(text.Get(language, "ImportEvmPrivateKey"), "settings:evmimport:" + slotNumber)],
-                 [new TelegramInlineButton(text.Get(language, "Back"), "settings:wallets")],
-                 CloseButtons(language)[0]], cancellationToken);
+                [[new TelegramInlineButton(text.Get(language, "CreateEvmWallet"), "settings:evmcreate:" + slotNumber),
+                  new TelegramInlineButton(text.Get(language, "ImportEvmPrivateKey"), "settings:evmimport:" + slotNumber)],
+                 [new TelegramInlineButton(text.Get(language, "Back"), "settings:wallets"),
+                  new TelegramInlineButton(text.Get(language, "Close"), "settings:close")]], cancellationToken);
             return;
         }
 
@@ -271,9 +280,36 @@ public sealed class TokenSettingsMenuService
         }
         await telegramApi.SendButtonsAsync(chatId, readyMessage,
             [[new TelegramInlineButton(text.Get(language, "ShowPrivateKey"), "settings:evmexport:" + slotNumber)],
-             [new TelegramInlineButton(text.Get(language, "ReplaceEvmPrivateKey"), "settings:evmimport:" + slotNumber)],
-             [new TelegramInlineButton(text.Get(language, "Back"), "settings:wallets")],
-             CloseButtons(language)[0]], cancellationToken, true);
+             [new TelegramInlineButton(text.Get(language, "ReplaceEvmPrivateKey"), "settings:evmimport:" + slotNumber),
+              new TelegramInlineButton(text.Get(language, "DeleteEvmWallet"), "settings:evmdelete:" + slotNumber)],
+             [new TelegramInlineButton(text.Get(language, "Back"), "settings:wallets"),
+              new TelegramInlineButton(text.Get(language, "Close"), "settings:close")]], cancellationToken, true);
+    }
+
+    private async Task ShowDeleteEvmWalletConfirmationAsync(long chatId, int slotNumber, string language,
+        CancellationToken cancellationToken)
+    {
+        EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, slotNumber, cancellationToken);
+        if (wallet == null)
+        {
+            await ShowEvmWalletAsync(chatId, slotNumber, language, cancellationToken);
+            return;
+        }
+
+        await telegramApi.SendButtonsAsync(chatId,
+            text.Get(language, "ConfirmDeleteEvmWallet", slotNumber, wallet.Address),
+            [[new TelegramInlineButton(text.Get(language, "Confirm"),
+                "settings:evmdeleteconfirm:" + slotNumber)],
+             [new TelegramInlineButton(text.Get(language, "Cancel"), "settings:evm:" + slotNumber)]],
+            cancellationToken, true);
+    }
+
+    private async Task DeleteEvmWalletAsync(long chatId, int slotNumber, string language,
+        CancellationToken cancellationToken)
+    {
+        bool deleted = await evmWalletService.DeleteAsync(chatId, slotNumber, cancellationToken);
+        await ShowEvmWalletAsync(chatId, slotNumber, language, cancellationToken,
+            deleted ? text.Get(language, "EvmWalletDeleted", slotNumber) : null);
     }
 
     private async Task CreateEvmWalletAsync(long chatId, int slotNumber, string language,

@@ -178,6 +178,34 @@ public sealed class TokenPreviewService
         }
     }
 
+    // Ảnh user gửi được dùng nguyên bản làm avatar; AI chỉ tạo tên, mã và mô tả từ nội dung X.
+    public async Task<TokenPreviewDto> CreateWithUploadedImageAsync(string? postText, byte[] image,
+        DateTimeOffset receivedAt, string? chain, CancellationToken cancellationToken)
+    {
+        bool isJpeg = image.Length >= 3 && image[0] == 255 && image[1] == 216 && image[2] == 255;
+        bool isPng = image.Length >= 8
+            && image[0] == 137 && image[1] == 80 && image[2] == 78 && image[3] == 71
+            && image[4] == 13 && image[5] == 10 && image[6] == 26 && image[7] == 10;
+        if ((!isJpeg && !isPng) || image.Length > 10 * 1024 * 1024)
+        {
+            throw new ArgumentException("The custom token image must be a JPG or PNG up to 10 MB.");
+        }
+
+        Stopwatch timer = Stopwatch.StartNew();
+        TokenDraftDto draft = await openAiClient.CreateTokenMetadataAsync(postText, null,
+            GetChainImageStyle(chain), cancellationToken);
+        timer.Stop();
+
+        return new TokenPreviewDto
+        {
+            Draft = draft,
+            Image = image,
+            OpenAiSeconds = timer.Elapsed.TotalSeconds,
+            TotalSeconds = Math.Max(0, (DateTimeOffset.UtcNow - receivedAt).TotalSeconds),
+            UsedSourceImage = true
+        };
+    }
+
     private static TokenPreviewDto CreateExpiredResult(DateTimeOffset receivedAt, string? imageUrl)
     {
         return new TokenPreviewDto

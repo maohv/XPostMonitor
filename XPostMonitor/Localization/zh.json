@@ -62,6 +62,10 @@
   "ShowPrivateKey": "显示私钥",
   "ImportEvmPrivateKey": "导入私钥",
   "ReplaceEvmPrivateKey": "更换私钥",
+  "DeleteEvmWallet": "删除钱包",
+  "ConfirmDeleteEvmWallet": "删除 Worker {0} 的钱包？\n\n地址：<code>{1}</code>\n\n机器人将永久删除该 Worker 的 EVM 私钥和 GMGN 配置，并关闭自动创建。请先备份私钥，并确认没有自动交易仍在运行。",
+  "EvmWalletDeleted": "Worker {0} 的钱包和 GMGN 配置已删除，自动创建已关闭。",
+  "ConfigureWalletBeforeGmgn": "请先为 Worker {0} 创建或导入 EVM 钱包，再配置 GMGN。",
   "SendEvmPrivateKey": "请发送 EVM 私钥。保存后该消息会被删除。新私钥将替换当前钱包，并关闭自动创建。",
   "InvalidEvmPrivateKey": "EVM 私钥无效，数据未被更改。",
   "EvmWalletImportFailed": "无法导入 EVM 钱包：{0}",
@@ -160,4 +164,12 @@
   ,"TokensPerPost": "每条 Post 的代币数"
   ,"ConfigureGmgnFirst": "请先为钱包 {0} 配置 GMGN，再开启自动交易。"
   ,"ConfigureGmgn": "配置 GMGN"
+  ,"ChooseManualWorkerCount": "选择同时创建此代币的钱包数量："
+  ,"ChooseManualImage": "选择代币图片："
+  ,"UseAutomaticImage": "使用 Post / AI 图片"
+  ,"UploadCustomImage": "上传自定义图片"
+  ,"SendCustomTokenImage": "请现在发送一张 JPG 或 PNG 图片。Bot 将原样使用它作为代币头像。"
+  ,"CustomImageInvalid": "请发送 JPG 或 PNG 图片。"
+  ,"CustomImageFailed": "无法使用自定义图片：{0}"
+  ,"CustomImageNotExpected": "当前没有正在等待的自定义代币图片。"
 }

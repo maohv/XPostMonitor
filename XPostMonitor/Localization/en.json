@@ -113,6 +113,10 @@
   "ShowPrivateKey": "Show private key",
   "ImportEvmPrivateKey": "Import private key",
   "ReplaceEvmPrivateKey": "Replace private key",
+  "DeleteEvmWallet": "Delete wallet",
+  "ConfirmDeleteEvmWallet": "Delete Worker {0} wallet?\n\nAddress: <code>{1}</code>\n\nThe EVM private key and GMGN credentials for this Worker will be permanently removed from the bot. Auto Create will be disabled. Back up the private key and make sure no automatic trade is still running.",
+  "EvmWalletDeleted": "Worker {0} wallet and its GMGN credentials were deleted. Auto Create was disabled.",
+  "ConfigureWalletBeforeGmgn": "Create or import the EVM wallet for Worker {0} before configuring GMGN.",
   "SendEvmPrivateKey": "Send the EVM private key. This message will be deleted after it is saved. Importing a key replaces the current wallet and disables Auto Create.",
   "InvalidEvmPrivateKey": "The EVM private key is invalid. Nothing was changed.",
   "EvmWalletImportFailed": "Could not import the EVM wallet: {0}",
@@ -211,4 +215,12 @@
   ,"TokensPerPost": "Tokens per Post"
   ,"ConfigureGmgnFirst": "Configure GMGN for Worker {0} before enabling Auto Trading for these tokens."
   ,"ConfigureGmgn": "Configure GMGN"
+  ,"ChooseManualWorkerCount": "How many wallets should create this token?"
+  ,"ChooseManualImage": "Choose the token image:"
+  ,"UseAutomaticImage": "Use Post / AI image"
+  ,"UploadCustomImage": "Upload my image"
+  ,"SendCustomTokenImage": "Send one JPG or PNG image now. It will be used unchanged as the token avatar."
+  ,"CustomImageInvalid": "Please send a JPG or PNG image."
+  ,"CustomImageFailed": "Could not use the custom image: {0}"
+  ,"CustomImageNotExpected": "No custom token image is currently being requested."
 }

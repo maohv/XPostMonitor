@@ -109,10 +109,39 @@ public sealed class TelegramBotService : BackgroundService
             {
                 await HandleCommandAsync(update.Message, cancellationToken);
             }
+            else if (update.Message?.Photo?.Count > 0)
+            {
+                await HandlePhotoAsync(update.Message, cancellationToken);
+            }
             else if (update.CallbackQuery?.Data != null)
             {
                 await HandleCallbackAsync(update.CallbackQuery, cancellationToken);
             }
+        }
+    }
+
+    private async Task HandlePhotoAsync(TelegramMessage message, CancellationToken cancellationToken)
+    {
+        if (message.Chat.Type != "private" || message.From == null)
+        {
+            return;
+        }
+
+        await premiumService.RegisterUserAsync(message.Chat.Id, message.From, cancellationToken);
+        string language = await premiumService.GetLanguageAsync(message.Chat.Id, cancellationToken);
+        bool hasPremium = enablePersonalBot
+            && await premiumService.IsPremiumAsync(message.Chat.Id, cancellationToken);
+        if (!hasPremium)
+        {
+            await telegramApi.SendMessageAsync(message.Chat.Id, text.Get(language, "PersonalClosed"),
+                cancellationToken);
+            return;
+        }
+
+        if (!await manualTokenMenu.HandlePhotoAsync(message, language, cancellationToken))
+        {
+            await telegramApi.SendMessageAsync(message.Chat.Id,
+                text.Get(language, "CustomImageNotExpected"), cancellationToken);
         }
     }
 
