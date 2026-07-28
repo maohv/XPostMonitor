@@ -14,6 +14,7 @@ public sealed class TelegramUser
     public ICollection<WatchlistEntry> Watchlist { get; set; } = new List<WatchlistEntry>();
     public ICollection<UserChainTradingSettings> ChainTradingSettings { get; set; } = new List<UserChainTradingSettings>();
     public ICollection<TakeProfitSetting> TakeProfitSettings { get; set; } = new List<TakeProfitSetting>();
+    public ICollection<TradingWorker> TradingWorkers { get; set; } = new List<TradingWorker>();
     public ICollection<AutoTrade> AutoTrades { get; set; } = new List<AutoTrade>();
     public UserTradingSettings? TradingSettings { get; set; }
 }

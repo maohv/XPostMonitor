@@ -9,6 +9,7 @@ public sealed class WatchlistEntry
     public string? TokenAnchor { get; set; }
     public int CreatorTaxPercent { get; set; }
     public bool EnableAutoTrading { get; set; }
+    public int ParallelTokenCount { get; set; } = 1;
     public DateTime CreatedAtUtc { get; set; }
 
     public TelegramUser TelegramUser { get; set; } = null!;

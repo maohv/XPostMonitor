@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Numerics;
 using System.Threading.Channels;
 using XPostMonitor.Dtos;
+using XPostMonitor.Configuration;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
@@ -28,6 +29,7 @@ public sealed class TokenCreationService : BackgroundService
     private readonly TelegramApiClient telegramApi;
     private readonly ILogger<TokenCreationService> logger;
     private readonly BotTextService text;
+    private readonly TradingWorkersOptions workerOptions;
     private readonly Channel<TokenCreationRequest> queue = Channel.CreateUnbounded<TokenCreationRequest>();
     private readonly ConcurrentDictionary<string, byte> manualJobs = new();
 
@@ -35,7 +37,7 @@ public sealed class TokenCreationService : BackgroundService
         FourMemeClient fourMemeClient, DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient,
         PonsRobinhoodClient ponsRobinhoodClient, EvmWalletService evmWalletService,
         AutoTradingService autoTradingService, TelegramApiClient telegramApi, BotTextService text,
-        ILogger<TokenCreationService> logger)
+        TradingWorkersOptions workerOptions, ILogger<TokenCreationService> logger)
     {
         this.tokenSettings = tokenSettings;
         this.tokenPreviewService = tokenPreviewService;
@@ -47,17 +49,36 @@ public sealed class TokenCreationService : BackgroundService
         this.autoTradingService = autoTradingService;
         this.telegramApi = telegramApi;
         this.text = text;
+        this.workerOptions = workerOptions;
         this.logger = logger;
     }
 
-    public ValueTask QueueAsync(long chatId, string postId, string? username, string postText, string? sourceLanguage,
+    public async ValueTask QueueAsync(long chatId, string postId, string? username, string postText,
+        string? sourceLanguage,
         string? photoUrl, string postUrl, string chain, string launchpad, string? anchor, bool useOriginalImage,
-        int creatorTaxPercent, bool enableAutoTrading, string language, DateTimeOffset receivedAt,
+        int creatorTaxPercent, bool enableAutoTrading, int parallelTokenCount, string language,
+        DateTimeOffset receivedAt,
         CancellationToken cancellationToken)
     {
-        return queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText, sourceLanguage,
-            photoUrl, postUrl, chain, launchpad, anchor, useOriginalImage, creatorTaxPercent,
-            enableAutoTrading, BotTextService.Normalize(language), receivedAt, false, null), cancellationToken);
+        int workerCount = Math.Clamp(parallelTokenCount, 1, workerOptions.MaxWorkers);
+        IReadOnlyList<TradingWorkerWallet> workers = await evmWalletService.GetReadyWorkersAsync(chatId,
+            workerCount, cancellationToken);
+        if (workers.Count != workerCount)
+        {
+            int missingSlot = Enumerable.Range(1, workerCount)
+                .First(slot => workers.All(worker => worker.SlotNumber != slot));
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ConfigureWorkerFirst", missingSlot),
+                cancellationToken);
+            return;
+        }
+
+        foreach (TradingWorkerWallet worker in workers)
+        {
+            await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
+                sourceLanguage, photoUrl, postUrl, chain, launchpad, anchor, useOriginalImage, creatorTaxPercent,
+                enableAutoTrading, BotTextService.Normalize(language), receivedAt, false, null, worker.WorkerId,
+                worker.SlotNumber, workerCount), cancellationToken);
+        }
     }
 
     public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string? username, string postText,
@@ -74,7 +95,8 @@ public sealed class TokenCreationService : BackgroundService
         {
             await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
                 sourceLanguage, photoUrl, postUrl, chain, launchpad, anchor, !string.IsNullOrWhiteSpace(photoUrl),
-                creatorTaxPercent, true, BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey),
+                creatorTaxPercent, true, BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey,
+                null, 1, 1),
                 cancellationToken);
             return true;
         }
@@ -87,7 +109,8 @@ public sealed class TokenCreationService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Task[] workers = Enumerable.Range(0, 4).Select(_ => WorkAsync(stoppingToken)).ToArray();
+        Task[] workers = Enumerable.Range(0, workerOptions.MaxWorkers)
+            .Select(_ => WorkAsync(stoppingToken)).ToArray();
         await Task.WhenAll(workers);
     }
 
@@ -122,11 +145,15 @@ public sealed class TokenCreationService : BackgroundService
             throw new InvalidOperationException("Launchpad is not integrated yet.");
         }
 
-        EvmWalletCredentials? wallet = await evmWalletService.GetAsync(request.ChatId, cancellationToken);
+        TradingWorkerWallet? worker = request.TradingWorkerId.HasValue
+            ? await evmWalletService.GetByIdAsync(request.ChatId, request.TradingWorkerId.Value,
+                cancellationToken)
+            : (await evmWalletService.GetReadyWorkersAsync(request.ChatId, 1, cancellationToken))
+                .FirstOrDefault();
         TokenCreateSettings? settings = request.IsManual
             ? await tokenSettings.GetChainSettingsAsync(request.ChatId, request.Chain, cancellationToken)
             : await tokenSettings.GetAutoCreateSettingsAsync(request.ChatId, request.Chain, cancellationToken);
-        if (wallet == null || settings == null)
+        if (worker == null || settings == null)
         {
             if (request.IsManual)
             {
@@ -158,7 +185,7 @@ public sealed class TokenCreationService : BackgroundService
             return;
         }
 
-        TokenResult result = await CreateOnLaunchpadAsync(request, wallet, preview, settings.BuyAmount,
+        TokenResult result = await CreateOnLaunchpadAsync(request, worker.Wallet, preview, settings.BuyAmount,
             settings.SlippagePercent, cancellationToken);
         string gas = result.EstimatedGas?.ToString() ?? text.Get(request.Language, "DryRunGasSkipped");
         string balanceStatus = text.Get(request.Language,
@@ -185,12 +212,17 @@ public sealed class TokenCreationService : BackgroundService
         {
             caption += "\nGMGN: " + gmgnUrl;
         }
+        if (request.VariantCount > 1)
+        {
+            caption += "\n" + text.Get(request.Language, "Worker") + ": " + request.WorkerSlot;
+        }
 
         if (!result.IsDryRun && request.EnableAutoTrading && !string.IsNullOrWhiteSpace(result.TokenAddress))
         {
-            await autoTradingService.QueueAsync(request.ChatId, request.PostId, request.Chain,
-                request.Launchpad, result.TokenAddress, preview.Draft.Name, preview.Draft.Symbol, wallet.Address,
-                settings.SlippagePercent, result.TransactionHash, request.Language, cancellationToken);
+            await autoTradingService.QueueAsync(request.ChatId, worker.WorkerId, request.PostId, request.Chain,
+                request.Launchpad, result.TokenAddress, preview.Draft.Name, preview.Draft.Symbol,
+                worker.Wallet.Address, settings.SlippagePercent, result.TransactionHash, request.Language,
+                cancellationToken);
         }
         else if (!result.IsDryRun)
         {
@@ -257,7 +289,8 @@ public sealed class TokenCreationService : BackgroundService
     private sealed record TokenCreationRequest(long ChatId, string PostId, string? Username, string PostText,
         string? SourceLanguage, string? PhotoUrl, string PostUrl, string Chain, string Launchpad,
         string? Anchor, bool UseOriginalImage, int CreatorTaxPercent, bool EnableAutoTrading, string Language,
-        DateTimeOffset ReceivedAt, bool IsManual, string? ManualJobKey);
+        DateTimeOffset ReceivedAt, bool IsManual, string? ManualJobKey, long? TradingWorkerId, int WorkerSlot,
+        int VariantCount);
 
     private sealed record TokenResult(string? TransactionHash, BigInteger? EstimatedGas, bool IsDryRun,
         bool HasEnoughBalance, string? TokenAddress);

@@ -140,11 +140,12 @@ public sealed class ApiHealthMonitorService : BackgroundService
     {
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        long? chatId = await db.UserTradingSettings
+        var worker = await db.TradingWorkers
             .Where(item => item.EncryptedGmgnApiKey != "" && item.EncryptedGmgnPrivateKey != "")
-            .OrderBy(item => item.ChatId).Select(item => (long?)item.ChatId)
+            .OrderBy(item => item.ChatId).ThenBy(item => item.SlotNumber)
+            .Select(item => new { item.ChatId, item.Id })
             .FirstOrDefaultAsync(cancellationToken);
-        if (!chatId.HasValue)
+        if (worker == null)
         {
             if (!string.IsNullOrWhiteSpace(gmgnOptions.ApiKey))
             {
@@ -153,7 +154,8 @@ public sealed class ApiHealthMonitorService : BackgroundService
             throw new InvalidOperationException("GMGN is not configured");
         }
 
-        GmgnCredentials? credentials = await tradingSettings.GetCredentialsAsync(chatId.Value, cancellationToken);
+        GmgnCredentials? credentials = await tradingSettings.GetCredentialsAsync(worker.ChatId, worker.Id,
+            cancellationToken);
         if (credentials == null)
         {
             throw new InvalidOperationException("saved GMGN credentials cannot be decrypted");

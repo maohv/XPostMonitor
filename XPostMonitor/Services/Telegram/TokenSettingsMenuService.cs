@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
@@ -21,12 +22,14 @@ public sealed class TokenSettingsMenuService
     private readonly DyorStableClient dyorStableClient;
     private readonly LongRobinhoodClient longRobinhoodClient;
     private readonly BotTextService text;
+    private readonly TradingWorkersOptions workerOptions;
     // Lưu tạm loại dữ liệu mà bot đang chờ user gửi: số tiền hoặc private key.
     private readonly ConcurrentDictionary<long, string> pendingInputs = new();
 
     public TokenSettingsMenuService(TelegramApiClient telegramApi, TokenSettingsService tokenSettings,
         PremiumService premiumService, EvmWalletService evmWalletService, FourMemeClient fourMemeClient,
-        DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient, BotTextService text)
+        DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient, BotTextService text,
+        TradingWorkersOptions workerOptions)
     {
         this.telegramApi = telegramApi;
         this.tokenSettings = tokenSettings;
@@ -36,6 +39,7 @@ public sealed class TokenSettingsMenuService
         this.dyorStableClient = dyorStableClient;
         this.longRobinhoodClient = longRobinhoodClient;
         this.text = text;
+        this.workerOptions = workerOptions;
     }
 
     public async Task ShowAsync(long chatId, CancellationToken cancellationToken, string? notice = null)
@@ -49,7 +53,7 @@ public sealed class TokenSettingsMenuService
         List<IReadOnlyList<TelegramInlineButton>> buttons =
         [
             [new TelegramInlineButton(text.Get(language, "EnableDisableAuto"), "settings:toggle")],
-            [new TelegramInlineButton(text.Get(language, "EvmWallet"), "settings:evm")],
+            [new TelegramInlineButton(text.Get(language, "ParallelWallets"), "settings:wallets")],
             [new TelegramInlineButton(text.Get(language, "GmgnAndAutoTrading"), "trading:show")],
             [new TelegramInlineButton(text.Get(language, "DefaultBuyAmounts"), "settings:amounts")]
         ];
@@ -99,20 +103,26 @@ public sealed class TokenSettingsMenuService
                 await telegramApi.SendButtonsAsync(chatId, amountMessage, CloseButtons(language), cancellationToken);
                 return;
 
+            case "wallets":
+                await ShowWalletsAsync(chatId, language, cancellationToken);
+                return;
+
             case "evm":
-                await ShowEvmWalletAsync(chatId, language, cancellationToken);
+                int evmSlot = ReadSlot(parts);
+                await ShowEvmWalletAsync(chatId, evmSlot, language, cancellationToken);
                 return;
 
             case "evmcreate":
-                await CreateEvmWalletAsync(chatId, language, cancellationToken);
+                await CreateEvmWalletAsync(chatId, ReadSlot(parts), language, cancellationToken);
                 return;
 
             case "evmexport":
-                await ShowEvmPrivateKeyAsync(chatId, language, cancellationToken);
+                await ShowEvmPrivateKeyAsync(chatId, ReadSlot(parts), language, cancellationToken);
                 return;
 
             case "evmimport":
-                pendingInputs[chatId] = "evm-private-key";
+                int importSlot = ReadSlot(parts);
+                pendingInputs[chatId] = "evm-private-key:" + importSlot;
                 await telegramApi.SendButtonsAsync(chatId, text.Get(language, "SendEvmPrivateKey"),
                     CloseButtons(language), cancellationToken);
                 return;
@@ -144,26 +154,27 @@ public sealed class TokenSettingsMenuService
         }
 
         string language = await premiumService.GetLanguageAsync(message.Chat.Id, cancellationToken);
-        if (inputType == "evm-private-key")
+        if (inputType.StartsWith("evm-private-key:", StringComparison.Ordinal)
+            && int.TryParse(inputType[16..], out int slotNumber))
         {
             // Xóa ngay tin nhắn có private key khỏi Telegram trước khi lưu.
             await telegramApi.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken);
             try
             {
                 EvmWalletCredentials wallet = await evmWalletService.ImportAsync(message.Chat.Id,
-                    message.Text, cancellationToken);
+                    slotNumber, message.Text, cancellationToken);
                 string balances = await GetWalletBalancesAsync(wallet.Address, cancellationToken);
-                await ShowAsync(message.Chat.Id, cancellationToken,
+                await ShowEvmWalletAsync(message.Chat.Id, slotNumber, language, cancellationToken,
                     text.Get(language, "EvmWalletImported", wallet.Address, balances));
             }
             catch (ArgumentException)
             {
-                await ShowAsync(message.Chat.Id, cancellationToken,
+                await ShowEvmWalletAsync(message.Chat.Id, slotNumber, language, cancellationToken,
                     text.Get(language, "InvalidEvmPrivateKey"));
             }
             catch (Exception exception)
             {
-                await ShowAsync(message.Chat.Id, cancellationToken,
+                await ShowEvmWalletAsync(message.Chat.Id, slotNumber, language, cancellationToken,
                     text.Get(language, "EvmWalletImportFailed", exception.Message));
             }
             return true;
@@ -216,30 +227,61 @@ public sealed class TokenSettingsMenuService
             buttons, cancellationToken);
     }
 
-    private async Task ShowEvmWalletAsync(long chatId, string language, CancellationToken cancellationToken)
+    private async Task ShowWalletsAsync(long chatId, string language, CancellationToken cancellationToken)
     {
-        EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, cancellationToken);
+        IReadOnlyList<TradingWorkerState> workers = await evmWalletService.GetStatesAsync(chatId,
+            cancellationToken);
+        List<IReadOnlyList<TelegramInlineButton>> buttons = workers.Select(worker =>
+            (IReadOnlyList<TelegramInlineButton>)[new TelegramInlineButton(
+                text.Get(language, "Worker") + " " + worker.SlotNumber + ": "
+                + text.Get(language, worker.HasWallet ? "Configured" : "NotConfigured"),
+                "settings:evm:" + worker.SlotNumber)]).ToList();
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Back"), "settings:back")]);
+        buttons.Add(CloseButtons(language)[0]);
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseWorkerWallet"),
+            buttons, cancellationToken);
+    }
+
+    private async Task ShowEvmWalletAsync(long chatId, int slotNumber, string language,
+        CancellationToken cancellationToken, string? notice = null)
+    {
+        EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, slotNumber, cancellationToken);
         if (wallet == null)
         {
-            await telegramApi.SendButtonsAsync(chatId, text.Get(language, "EvmWalletMissing"),
-                [[new TelegramInlineButton(text.Get(language, "CreateEvmWallet"), "settings:evmcreate")],
-                 [new TelegramInlineButton(text.Get(language, "ImportEvmPrivateKey"), "settings:evmimport")],
+            string message = text.Get(language, "Worker") + " " + slotNumber + "\n\n"
+                + text.Get(language, "EvmWalletMissing");
+            if (!string.IsNullOrWhiteSpace(notice))
+            {
+                message = notice + "\n\n" + message;
+            }
+            await telegramApi.SendButtonsAsync(chatId, message,
+                [[new TelegramInlineButton(text.Get(language, "CreateEvmWallet"), "settings:evmcreate:" + slotNumber)],
+                 [new TelegramInlineButton(text.Get(language, "ImportEvmPrivateKey"), "settings:evmimport:" + slotNumber)],
+                 [new TelegramInlineButton(text.Get(language, "Back"), "settings:wallets")],
                  CloseButtons(language)[0]], cancellationToken);
             return;
         }
 
         string balances = await GetWalletBalancesAsync(wallet.Address, cancellationToken);
-        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "EvmWalletReady", wallet.Address, balances),
-            [[new TelegramInlineButton(text.Get(language, "ShowPrivateKey"), "settings:evmexport")],
-             [new TelegramInlineButton(text.Get(language, "ReplaceEvmPrivateKey"), "settings:evmimport")],
+        string readyMessage = text.Get(language, "Worker") + " " + slotNumber + "\n\n"
+            + text.Get(language, "EvmWalletReady", wallet.Address, balances);
+        if (!string.IsNullOrWhiteSpace(notice))
+        {
+            readyMessage = notice + "\n\n" + readyMessage;
+        }
+        await telegramApi.SendButtonsAsync(chatId, readyMessage,
+            [[new TelegramInlineButton(text.Get(language, "ShowPrivateKey"), "settings:evmexport:" + slotNumber)],
+             [new TelegramInlineButton(text.Get(language, "ReplaceEvmPrivateKey"), "settings:evmimport:" + slotNumber)],
+             [new TelegramInlineButton(text.Get(language, "Back"), "settings:wallets")],
              CloseButtons(language)[0]], cancellationToken, true);
     }
 
-    private async Task CreateEvmWalletAsync(long chatId, string language, CancellationToken cancellationToken)
+    private async Task CreateEvmWalletAsync(long chatId, int slotNumber, string language,
+        CancellationToken cancellationToken)
     {
         try
         {
-            EvmWalletCreated wallet = await evmWalletService.CreateAsync(chatId, cancellationToken);
+            EvmWalletCreated wallet = await evmWalletService.CreateAsync(chatId, slotNumber, cancellationToken);
             string balances = await GetWalletBalancesAsync(wallet.Address, cancellationToken);
             string message = wallet.IsNew
                 ? text.Get(language, "EvmWalletCreated", wallet.Address, wallet.PrivateKey, balances)
@@ -253,10 +295,10 @@ public sealed class TokenSettingsMenuService
         }
     }
 
-    private async Task ShowEvmPrivateKeyAsync(long chatId, string language,
+    private async Task ShowEvmPrivateKeyAsync(long chatId, int slotNumber, string language,
         CancellationToken cancellationToken)
     {
-        EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, cancellationToken);
+        EvmWalletCredentials? wallet = await evmWalletService.GetAsync(chatId, slotNumber, cancellationToken);
         if (wallet == null)
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "EvmWalletMissing"), cancellationToken);
@@ -349,5 +391,13 @@ public sealed class TokenSettingsMenuService
     private IReadOnlyList<IReadOnlyList<TelegramInlineButton>> CloseButtons(string language)
     {
         return [[new TelegramInlineButton("✖ " + text.Get(language, "Close"), "settings:close")]];
+    }
+
+    private int ReadSlot(string[] parts)
+    {
+        return parts.Length >= 3 && int.TryParse(parts[2], out int slotNumber) && slotNumber >= 1
+            && slotNumber <= workerOptions.MaxWorkers
+            ? slotNumber
+            : 1;
     }
 }

@@ -77,6 +77,11 @@ EvmNetworksOptions evmNetworksOptions = new EvmNetworksOptions();
 builder.Configuration.GetSection(EvmNetworksOptions.SectionName).Bind(evmNetworksOptions);
 builder.Services.AddSingleton(evmNetworksOptions);
 
+TradingWorkersOptions tradingWorkersOptions = new TradingWorkersOptions();
+builder.Configuration.GetSection(TradingWorkersOptions.SectionName).Bind(tradingWorkersOptions);
+tradingWorkersOptions.MaxWorkers = Math.Max(1, tradingWorkersOptions.MaxWorkers);
+builder.Services.AddSingleton(tradingWorkersOptions);
+
 builder.Services.AddHttpClient<XApiClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.x.com/");

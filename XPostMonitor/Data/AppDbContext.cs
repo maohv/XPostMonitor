@@ -15,6 +15,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<WatchlistEntry> WatchlistEntries { get; set; } = null!;
     public DbSet<XSubscription> XSubscriptions { get; set; } = null!;
     public DbSet<UserTradingSettings> UserTradingSettings { get; set; } = null!;
+    public DbSet<TradingWorker> TradingWorkers { get; set; } = null!;
     public DbSet<UserChainTradingSettings> UserChainTradingSettings { get; set; } = null!;
     public DbSet<TakeProfitSetting> TakeProfitSettings { get; set; } = null!;
     public DbSet<AutoTrade> AutoTrades { get; set; } = null!;
@@ -51,6 +52,7 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.TokenAnchor).HasMaxLength(20);
             entity.Property(x => x.CreatorTaxPercent).HasDefaultValue(0);
             entity.Property(x => x.EnableAutoTrading).HasDefaultValue(false);
+            entity.Property(x => x.ParallelTokenCount).HasDefaultValue(1);
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.Watchlist).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.XAccount).WithMany(x => x.Watchers).HasForeignKey(x => x.XUserId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -68,8 +70,17 @@ public sealed class AppDbContext : DbContext
         {
             entity.HasKey(x => x.ChatId);
             entity.Property(x => x.ChatId).ValueGeneratedNever();
-            entity.Property(x => x.EvmWalletAddress).HasMaxLength(42);
             entity.HasOne(x => x.TelegramUser).WithOne(x => x.TradingSettings).HasForeignKey<UserTradingSettings>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TradingWorker>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.EvmWalletAddress).HasMaxLength(42);
+            entity.Property(x => x.IsEnabled).HasDefaultValue(true);
+            entity.HasIndex(x => new { x.ChatId, x.SlotNumber }).IsUnique();
+            entity.HasOne(x => x.TelegramUser).WithMany(x => x.TradingWorkers)
+                .HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<UserChainTradingSettings>(entity =>
@@ -105,6 +116,8 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.ErrorMessage).HasMaxLength(500);
             entity.HasIndex(x => x.Status);
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.AutoTrades).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.TradingWorker).WithMany(x => x.AutoTrades)
+                .HasForeignKey(x => x.TradingWorkerId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<AutoTradeOrder>(entity =>

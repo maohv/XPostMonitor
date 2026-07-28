@@ -29,11 +29,13 @@ public sealed class AutoTradingService : BackgroundService
     private readonly TelegramApiClient telegramApi;
     private readonly BotTextService text;
     private readonly ILogger<AutoTradingService> logger;
+    private readonly TradingWorkersOptions workerOptions;
     private readonly Channel<AutoTradingRequest> queue = Channel.CreateUnbounded<AutoTradingRequest>();
 
     public AutoTradingService(IServiceScopeFactory scopeFactory, AutoTradingSettingsService settings,
         GmgnClient gmgnClient, IEnumerable<IAutoTradingLaunchpadHandler> launchpadHandlers,
-        TelegramApiClient telegramApi, BotTextService text, ILogger<AutoTradingService> logger)
+        TelegramApiClient telegramApi, BotTextService text, TradingWorkersOptions workerOptions,
+        ILogger<AutoTradingService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.settings = settings;
@@ -41,17 +43,19 @@ public sealed class AutoTradingService : BackgroundService
         this.launchpadHandlers = launchpadHandlers.ToList();
         this.telegramApi = telegramApi;
         this.text = text;
+        this.workerOptions = workerOptions;
         this.logger = logger;
     }
 
-    public async ValueTask QueueAsync(long chatId, string postId, string chain, string launchpad,
+    public async ValueTask QueueAsync(long chatId, long tradingWorkerId, string postId, string chain,
+        string launchpad,
         string tokenAddress, string tokenName, string tokenSymbol, string walletAddress, decimal slippagePercent,
         string? launchTransactionHash, string language, CancellationToken cancellationToken)
     {
         await AutoTradingDiagnosticLog.WriteAsync("QUEUED | Post=" + postId + " | Symbol=" + tokenSymbol
             + " | Chain=" + chain + " | Launchpad=" + launchpad + " | Token=" + tokenAddress);
-        await queue.Writer.WriteAsync(new AutoTradingRequest(chatId, postId, chain, launchpad, tokenAddress,
-            tokenName, tokenSymbol, walletAddress, slippagePercent, launchTransactionHash,
+        await queue.Writer.WriteAsync(new AutoTradingRequest(chatId, tradingWorkerId, postId, chain, launchpad,
+            tokenAddress, tokenName, tokenSymbol, walletAddress, slippagePercent, launchTransactionHash,
             BotTextService.Normalize(language)),
             cancellationToken);
     }
@@ -59,9 +63,10 @@ public sealed class AutoTradingService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await MarkInterruptedPreparationsAsync(stoppingToken);
-        Task prepareTask = PrepareLoopAsync(stoppingToken);
+        Task[] prepareTasks = Enumerable.Range(0, workerOptions.MaxWorkers)
+            .Select(_ => PrepareLoopAsync(stoppingToken)).ToArray();
         Task monitorTask = MonitorLoopAsync(stoppingToken);
-        await Task.WhenAll(prepareTask, monitorTask);
+        await Task.WhenAll(prepareTasks.Append(monitorTask));
     }
 
     private async Task PrepareLoopAsync(CancellationToken cancellationToken)
@@ -258,7 +263,8 @@ public sealed class AutoTradingService : BackgroundService
             return false;
         }
 
-        GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId, cancellationToken);
+        GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId,
+            request.TradingWorkerId, cancellationToken);
         if (credentials == null)
         {
             return false;
@@ -275,6 +281,7 @@ public sealed class AutoTradingService : BackgroundService
         {
             IAutoTradingLaunchpadHandler handler = GetLaunchpadHandler(request);
             GmgnCredentials credentials = await settings.GetCredentialsAsync(request.ChatId,
+                request.TradingWorkerId,
                 cancellationToken) ?? throw new InvalidOperationException("GMGN is not connected.");
             string quoteToken = await handler.GetSellQuoteTokenAsync(credentials, request.TokenAddress,
                 cancellationToken);
@@ -398,7 +405,8 @@ public sealed class AutoTradingService : BackgroundService
     {
         IAutoTradingLaunchpadHandler handler = GetLaunchpadHandler(request);
 
-        GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId, cancellationToken);
+        GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId,
+            request.TradingWorkerId, cancellationToken);
         List<TakeProfitSetting> levels = await settings.GetTakeProfitsAsync(request.ChatId, cancellationToken);
         if (credentials == null)
         {
@@ -422,6 +430,7 @@ public sealed class AutoTradingService : BackgroundService
         AutoTrade trade = new AutoTrade
         {
             ChatId = request.ChatId,
+            TradingWorkerId = request.TradingWorkerId,
             PostId = request.PostId,
             Chain = handler.GmgnChain,
             TokenAddress = request.TokenAddress,
@@ -595,7 +604,8 @@ public sealed class AutoTradingService : BackgroundService
                 continue;
             }
 
-            GmgnCredentials? credentials = await settings.GetCredentialsAsync(trade.ChatId, cancellationToken);
+            GmgnCredentials? credentials = await settings.GetCredentialsAsync(trade.ChatId,
+                trade.TradingWorkerId, cancellationToken);
             if (credentials == null)
             {
                 continue;
@@ -783,7 +793,8 @@ public sealed class AutoTradingService : BackgroundService
         return value.Length <= 500 ? value : value[..500];
     }
 
-    private sealed record AutoTradingRequest(long ChatId, string PostId, string Chain, string Launchpad,
+    private sealed record AutoTradingRequest(long ChatId, long TradingWorkerId, string PostId, string Chain,
+        string Launchpad,
         string TokenAddress, string TokenName, string TokenSymbol, string WalletAddress, decimal SlippagePercent,
         string? LaunchTransactionHash, string Language);
 }

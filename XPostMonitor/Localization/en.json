@@ -202,4 +202,13 @@
   ,"GmgnAndAutoTrading": "GMGN API & Auto Trading"
   ,"DefaultBuyAmounts": "Default Buy Amounts"
   ,"ChooseBuyAmountNetwork": "Choose a network to set its default initial buy amount:"
+  ,"Worker": "Worker"
+  ,"ParallelWallets": "Parallel wallets"
+  ,"ChooseWorkerWallet": "Choose a worker wallet to configure:"
+  ,"ConfigureWorkerFirst": "Configure Wallet {0} before using this number of parallel tokens."
+  ,"ConfigureWallets": "Configure wallets"
+  ,"ChooseWorkerCount": "How many tokens should be created for each Post from @{0}?"
+  ,"TokensPerPost": "Tokens per Post"
+  ,"ConfigureGmgnFirst": "Configure GMGN for Worker {0} before enabling Auto Trading for these tokens."
+  ,"ConfigureGmgn": "Configure GMGN"
 }

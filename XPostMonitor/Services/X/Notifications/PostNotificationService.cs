@@ -121,7 +121,8 @@ public sealed class PostNotificationService : BackgroundService
                 await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, account.Username, tokenText,
                     post.Language, content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!,
                     watcher.TokenAnchor, content.OwnPhotoUrl != null, watcher.CreatorTaxPercent,
-                    watcher.EnableAutoTrading, watcher.TelegramUser.LanguageCode, postEvent.ReceivedAt,
+                    watcher.EnableAutoTrading, watcher.ParallelTokenCount, watcher.TelegramUser.LanguageCode,
+                    postEvent.ReceivedAt,
                     cancellationToken);
             }
         }

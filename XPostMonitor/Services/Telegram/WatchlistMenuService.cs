@@ -1,7 +1,10 @@
 using XPostMonitor.Dtos;
+using XPostMonitor.Configuration;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.X;
 using XPostMonitor.Services.Telegram.Localization;
+using XPostMonitor.Services.Wallets;
+using XPostMonitor.Services.Gmgn;
 
 namespace XPostMonitor.Services.Telegram;
 
@@ -10,13 +13,21 @@ public sealed class WatchlistMenuService
 {
     private readonly TelegramApiClient telegramApi;
     private readonly WatchlistService watchlistService;
+    private readonly EvmWalletService evmWalletService;
+    private readonly AutoTradingSettingsService autoTradingSettings;
     private readonly BotTextService text;
+    private readonly TradingWorkersOptions workerOptions;
 
-    public WatchlistMenuService(TelegramApiClient telegramApi, WatchlistService watchlistService, BotTextService text)
+    public WatchlistMenuService(TelegramApiClient telegramApi, WatchlistService watchlistService,
+        EvmWalletService evmWalletService, AutoTradingSettingsService autoTradingSettings, BotTextService text,
+        TradingWorkersOptions workerOptions)
     {
         this.telegramApi = telegramApi;
         this.watchlistService = watchlistService;
+        this.evmWalletService = evmWalletService;
+        this.autoTradingSettings = autoTradingSettings;
         this.text = text;
+        this.workerOptions = workerOptions;
     }
 
     // Bắt đầu lệnh /add bằng danh sách network dễ chọn.
@@ -123,23 +134,74 @@ public sealed class WatchlistMenuService
                 string? option = values[2] == "none" ? null : values[2];
                 string? anchor = values[1] == "long" ? option : null;
                 int creatorTaxPercent = values[1] == "fourmeme" && int.TryParse(option, out int tax) ? tax : 0;
-                await ShowConfirmationAsync(chatId, username, values[0], values[1], anchor,
+                await ShowWorkerCountAsync(chatId, username, values[0], values[1], anchor,
                     creatorTaxPercent, autoTrading == 1, language, cancellationToken);
+            }
+            return;
+        }
+
+        if (parts[1] == "workers")
+        {
+            string[] values = chain.Split(',', 5);
+            if (values.Length == 5 && int.TryParse(values[3], out int autoTrading)
+                && int.TryParse(values[4], out int workerCount) && workerCount >= 1
+                && workerCount <= workerOptions.MaxWorkers)
+            {
+                IReadOnlyList<TradingWorkerWallet> readyWorkers = await evmWalletService
+                    .GetReadyWorkersAsync(chatId, workerCount, cancellationToken);
+                if (readyWorkers.Count != workerCount)
+                {
+                    int missingSlot = Enumerable.Range(1, workerCount)
+                        .First(slot => readyWorkers.All(worker => worker.SlotNumber != slot));
+                    await telegramApi.SendButtonsAsync(chatId,
+                        text.Get(language, "ConfigureWorkerFirst", missingSlot),
+                        [[new TelegramInlineButton(text.Get(language, "ConfigureWallets"), "settings:wallets")],
+                         [new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]],
+                        cancellationToken);
+                    return;
+                }
+
+                if (autoTrading == 1)
+                {
+                    IReadOnlyList<GmgnWorkerState> gmgnStates = await autoTradingSettings
+                        .GetWorkerStatesAsync(chatId, cancellationToken);
+                    int? missingGmgnSlot = Enumerable.Range(1, workerCount)
+                        .FirstOrDefault(slot => !gmgnStates.Any(state => state.SlotNumber == slot
+                            && state.HasCredentials));
+                    if (missingGmgnSlot > 0)
+                    {
+                        await telegramApi.SendButtonsAsync(chatId,
+                            text.Get(language, "ConfigureGmgnFirst", missingGmgnSlot),
+                            [[new TelegramInlineButton(text.Get(language, "ConfigureGmgn"),
+                                "trading:worker:" + missingGmgnSlot)],
+                             [new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]],
+                            cancellationToken);
+                        return;
+                    }
+                }
+
+                string? option = values[2] == "none" ? null : values[2];
+                string? anchor = values[1] == "long" ? option : null;
+                int creatorTaxPercent = values[1] == "fourmeme" && int.TryParse(option, out int tax) ? tax : 0;
+                await ShowConfirmationAsync(chatId, username, values[0], values[1], anchor,
+                    creatorTaxPercent, autoTrading == 1, workerCount, language, cancellationToken);
             }
             return;
         }
 
         if (parts[1] == "save")
         {
-            string[] values = chain.Split(',', 4);
+            string[] values = chain.Split(',', 5);
             string? selectedChain = values[0] == "none" ? null : values[0];
             string? selectedDex = values.Length < 2 || values[1] == "none" ? null : values[1];
             string? selectedAnchor = selectedDex == "long" && values.Length >= 3 ? values[2] : null;
             int creatorTaxPercent = selectedDex == "fourmeme" && values.Length >= 3
                 && int.TryParse(values[2], out int tax) ? tax : 0;
-            bool enableAutoTrading = values.Length == 4 && values[3] == "1";
+            bool enableAutoTrading = values.Length >= 4 && values[3] == "1";
+            int workerCount = values.Length == 5 && int.TryParse(values[4], out int selectedCount)
+                ? Math.Clamp(selectedCount, 1, workerOptions.MaxWorkers) : 1;
             string reply = await watchlistService.AddAsync(chatId, username, selectedChain, selectedDex,
-                selectedAnchor, creatorTaxPercent, enableAutoTrading, language, cancellationToken);
+                selectedAnchor, creatorTaxPercent, enableAutoTrading, workerCount, language, cancellationToken);
             await telegramApi.SendMessageAsync(chatId, reply, cancellationToken);
         }
     }
@@ -195,7 +257,8 @@ public sealed class WatchlistMenuService
     }
 
     private async Task ShowConfirmationAsync(long chatId, string username, string chain, string dex, string? anchor,
-        int creatorTaxPercent, bool enableAutoTrading, string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, bool enableAutoTrading, int workerCount, string language,
+        CancellationToken cancellationToken)
     {
         LaunchpadNetwork? network = LaunchpadCatalog.Find(chain);
         LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == dex);
@@ -209,7 +272,7 @@ public sealed class WatchlistMenuService
         [
             [new TelegramInlineButton(text.Get(language, "Confirm"), "watch:save:" + username + ":" + chain + "," + dex
                 + "," + (anchor ?? (dex == "fourmeme" ? creatorTaxPercent.ToString() : "none"))
-                + "," + (enableAutoTrading ? "1" : "0"))],
+                + "," + (enableAutoTrading ? "1" : "0") + "," + workerCount)],
             [new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]
         ];
 
@@ -223,8 +286,24 @@ public sealed class WatchlistMenuService
                 : string.Empty)
             + (dex == "pons" ? "\n" + text.Get(language, "CreatorFee") + ": 70%" : string.Empty)
             + "\n" + text.Get(language, "AutoTrading") + ": "
-            + text.Get(language, enableAutoTrading ? "Enabled" : "Disabled");
+            + text.Get(language, enableAutoTrading ? "Enabled" : "Disabled")
+            + "\n" + text.Get(language, "TokensPerPost") + ": " + workerCount;
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
+    }
+
+    private async Task ShowWorkerCountAsync(long chatId, string username, string chain, string dex,
+        string? anchor, int creatorTaxPercent, bool enableAutoTrading, string language,
+        CancellationToken cancellationToken)
+    {
+        string option = anchor ?? (dex == "fourmeme" ? creatorTaxPercent.ToString() : "none");
+        string route = chain + "," + dex + "," + option + "," + (enableAutoTrading ? "1" : "0") + ",";
+        List<IReadOnlyList<TelegramInlineButton>> buttons = Enumerable.Range(1, workerOptions.MaxWorkers)
+            .Select(count => (IReadOnlyList<TelegramInlineButton>)[new TelegramInlineButton(count.ToString(),
+                "watch:workers:" + username + ":" + route + count)])
+            .ToList();
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]);
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseWorkerCount", username),
+            buttons, cancellationToken);
     }
 
     private async Task ShowAutoTradingAsync(long chatId, string username, string chain, string dex, string? anchor,

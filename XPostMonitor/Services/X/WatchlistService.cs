@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
@@ -14,20 +15,23 @@ public sealed class WatchlistService
     private readonly XApiClient xApiClient;
     private readonly ILogger<WatchlistService> logger;
     private readonly BotTextService text;
+    private readonly TradingWorkersOptions workerOptions;
 
     // Nhận database scope, X API và logger qua dependency injection.
     public WatchlistService(IServiceScopeFactory scopeFactory, XApiClient xApiClient,
-        ILogger<WatchlistService> logger, BotTextService text)
+        ILogger<WatchlistService> logger, BotTextService text, TradingWorkersOptions workerOptions)
     {
         this.scopeFactory = scopeFactory;
         this.xApiClient = xApiClient;
         this.logger = logger;
         this.text = text;
+        this.workerOptions = workerOptions;
     }
 
     // Kiểm tra username trên X rồi thêm tài khoản vào watchlist của Telegram user.
     public async Task<string> AddAsync(long chatId, string? username, string? chain, string? dex, string? anchor,
-        int creatorTaxPercent, bool enableAutoTrading, string language, CancellationToken cancellationToken)
+        int creatorTaxPercent, bool enableAutoTrading, int parallelTokenCount, string language,
+        CancellationToken cancellationToken)
     {
         username = username?.Trim().TrimStart('@');
         if (!IsValidXUsername(username))
@@ -36,6 +40,7 @@ public sealed class WatchlistService
         }
 
         bool alertsOnly = string.IsNullOrWhiteSpace(chain) && string.IsNullOrWhiteSpace(dex);
+        parallelTokenCount = alertsOnly ? 1 : Math.Clamp(parallelTokenCount, 1, workerOptions.MaxWorkers);
         if (!alertsOnly && !LaunchpadCatalog.IsValidRoute(chain, dex, anchor))
         {
             return text.Get(language, "UnsupportedRoute");
@@ -79,6 +84,7 @@ public sealed class WatchlistService
                 existingEntry.TokenAnchor = alertsOnly ? null : anchor;
                 existingEntry.CreatorTaxPercent = creatorTaxPercent;
                 existingEntry.EnableAutoTrading = enableAutoTrading;
+                existingEntry.ParallelTokenCount = parallelTokenCount;
                 existingEntry.XAccount.Username = xUser.Username;
                 existingEntry.XAccount.DisplayName = xUser.Name;
                 existingEntry.XAccount.UpdatedAtUtc = DateTime.UtcNow;
@@ -86,7 +92,8 @@ public sealed class WatchlistService
                 return text.Get(language, "WatchUpdated", xUser.Username,
                     FormatMode(chain, dex, anchor, creatorTaxPercent, language)
                     + (alertsOnly ? string.Empty : " | " + text.Get(language,
-                        enableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled")));
+                        enableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled")
+                        + " | " + text.Get(language, "TokensPerPost") + ": " + parallelTokenCount));
             }
 
             DateTime now = DateTime.UtcNow;
@@ -114,6 +121,7 @@ public sealed class WatchlistService
                 TokenAnchor = alertsOnly ? null : anchor,
                 CreatorTaxPercent = creatorTaxPercent,
                 EnableAutoTrading = enableAutoTrading,
+                ParallelTokenCount = parallelTokenCount,
                 CreatedAtUtc = now
             });
 
@@ -122,7 +130,8 @@ public sealed class WatchlistService
             return text.Get(language, "WatchAdded", xUser.Username,
                 FormatMode(chain, dex, anchor, creatorTaxPercent, language)
                 + (alertsOnly ? string.Empty : " | " + text.Get(language,
-                    enableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled")));
+                    enableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled")
+                    + " | " + text.Get(language, "TokensPerPost") + ": " + parallelTokenCount));
         }
         catch (HttpRequestException exception)
         {
@@ -206,7 +215,8 @@ public sealed class WatchlistService
             if (network != null && launchpad != null)
             {
                 mode += " | " + text.Get(language,
-                    entry.EnableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled");
+                    entry.EnableAutoTrading ? "AutoTradingEnabled" : "AutoTradingDisabled")
+                    + " | " + text.Get(language, "TokensPerPost") + ": " + entry.ParallelTokenCount;
             }
             return "@" + entry.XAccount.Username + "\n   " + mode;
         }).ToList();

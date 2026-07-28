@@ -5,6 +5,7 @@ public sealed class AutoTrade
 {
     public long Id { get; set; }
     public long ChatId { get; set; }
+    public long TradingWorkerId { get; set; }
     public string PostId { get; set; } = string.Empty;
     public string Chain { get; set; } = string.Empty;
     public string TokenAddress { get; set; } = string.Empty;
@@ -19,5 +20,6 @@ public sealed class AutoTrade
     public DateTime? CompletedAtUtc { get; set; }
 
     public TelegramUser TelegramUser { get; set; } = null!;
+    public TradingWorker TradingWorker { get; set; } = null!;
     public ICollection<AutoTradeOrder> Orders { get; set; } = new List<AutoTradeOrder>();
 }

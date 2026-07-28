@@ -160,4 +160,13 @@
   ,"GmgnAndAutoTrading": "API GMGN & Auto Trading"
   ,"DefaultBuyAmounts": "S\u1ed1 ti\u1ec1n mua m\u1eb7c \u0111\u1ecbnh"
   ,"ChooseBuyAmountNetwork": "Ch\u1ecdn chain \u0111\u1ec3 c\u00e0i s\u1ed1 ti\u1ec1n mua ban \u0111\u1ea7u m\u1eb7c \u0111\u1ecbnh:"
+  ,"Worker": "Ví"
+  ,"ParallelWallets": "Ví tạo song song"
+  ,"ChooseWorkerWallet": "Chọn ví cần cấu hình:"
+  ,"ConfigureWorkerFirst": "Hãy cấu hình Ví {0} trước khi chọn số token này."
+  ,"ConfigureWallets": "Cấu hình ví"
+  ,"ChooseWorkerCount": "Mỗi Post của @{0} sẽ tạo bao nhiêu token?"
+  ,"TokensPerPost": "Số token mỗi Post"
+  ,"ConfigureGmgnFirst": "Hãy cấu hình GMGN cho Ví {0} trước khi bật Auto Trading."
+  ,"ConfigureGmgn": "Cấu hình GMGN"
 }

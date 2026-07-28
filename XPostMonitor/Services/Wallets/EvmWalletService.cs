@@ -17,23 +17,32 @@ public sealed class EvmWalletService
     private readonly IServiceScopeFactory scopeFactory;
     private readonly IDataProtector protector;
     private readonly EvmNetworksOptions networkOptions;
-    private readonly ConcurrentDictionary<long, SemaphoreSlim> walletLocks = new();
+    private readonly TradingWorkersOptions workerOptions;
+    private readonly ConcurrentDictionary<(long ChatId, int SlotNumber), SemaphoreSlim> walletLocks = new();
 
     public EvmWalletService(IServiceScopeFactory scopeFactory, IDataProtectionProvider protectionProvider,
-        EvmNetworksOptions networkOptions)
+        EvmNetworksOptions networkOptions, TradingWorkersOptions workerOptions)
     {
         this.scopeFactory = scopeFactory;
         this.networkOptions = networkOptions;
+        this.workerOptions = workerOptions;
         protector = protectionProvider.CreateProtector("XPostMonitor.EvmWallet.v1");
     }
 
     public async Task<EvmWalletCreated> CreateAsync(long chatId, CancellationToken cancellationToken)
     {
-        SemaphoreSlim walletLock = walletLocks.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
+        return await CreateAsync(chatId, 1, cancellationToken);
+    }
+
+    public async Task<EvmWalletCreated> CreateAsync(long chatId, int slotNumber,
+        CancellationToken cancellationToken)
+    {
+        ValidateSlot(slotNumber);
+        SemaphoreSlim walletLock = walletLocks.GetOrAdd((chatId, slotNumber), _ => new SemaphoreSlim(1, 1));
         await walletLock.WaitAsync(cancellationToken);
         try
         {
-            return await CreateInternalAsync(chatId, cancellationToken);
+            return await CreateInternalAsync(chatId, slotNumber, cancellationToken);
         }
         finally
         {
@@ -45,11 +54,18 @@ public sealed class EvmWalletService
     public async Task<EvmWalletCredentials> ImportAsync(long chatId, string privateKey,
         CancellationToken cancellationToken)
     {
-        SemaphoreSlim walletLock = walletLocks.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
+        return await ImportAsync(chatId, 1, privateKey, cancellationToken);
+    }
+
+    public async Task<EvmWalletCredentials> ImportAsync(long chatId, int slotNumber, string privateKey,
+        CancellationToken cancellationToken)
+    {
+        ValidateSlot(slotNumber);
+        SemaphoreSlim walletLock = walletLocks.GetOrAdd((chatId, slotNumber), _ => new SemaphoreSlim(1, 1));
         await walletLock.WaitAsync(cancellationToken);
         try
         {
-            return await ImportInternalAsync(chatId, privateKey, cancellationToken);
+            return await ImportInternalAsync(chatId, slotNumber, privateKey, cancellationToken);
         }
         finally
         {
@@ -57,7 +73,7 @@ public sealed class EvmWalletService
         }
     }
 
-    private async Task<EvmWalletCredentials> ImportInternalAsync(long chatId, string privateKey,
+    private async Task<EvmWalletCredentials> ImportInternalAsync(long chatId, int slotNumber, string privateKey,
         CancellationToken cancellationToken)
     {
         string cleanPrivateKey = privateKey.Trim();
@@ -90,27 +106,30 @@ public sealed class EvmWalletService
         string address = key.GetPublicAddress();
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        UserTradingSettings settings = await GetOrCreateAsync(db, chatId, cancellationToken);
-        settings.EvmWalletAddress = address;
-        settings.EncryptedEvmPrivateKey = protector.Protect(normalizedPrivateKey);
+        TradingWorker worker = await GetOrCreateWorkerAsync(db, chatId, slotNumber, cancellationToken);
+        worker.EvmWalletAddress = address;
+        worker.EncryptedEvmPrivateKey = protector.Protect(normalizedPrivateKey);
+        worker.UpdatedAtUtc = DateTime.UtcNow;
+        UserTradingSettings settings = await GetOrCreateSettingsAsync(db, chatId, cancellationToken);
         settings.EnableTokenCreation = false;
         await db.SaveChangesAsync(cancellationToken);
 
         return new EvmWalletCredentials(address, normalizedPrivateKey);
     }
 
-    private async Task<EvmWalletCreated> CreateInternalAsync(long chatId, CancellationToken cancellationToken)
+    private async Task<EvmWalletCreated> CreateInternalAsync(long chatId, int slotNumber,
+        CancellationToken cancellationToken)
     {
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        UserTradingSettings settings = await GetOrCreateAsync(db, chatId, cancellationToken);
+        TradingWorker worker = await GetOrCreateWorkerAsync(db, chatId, slotNumber, cancellationToken);
 
-        if (TryReadWallet(settings, out EvmWalletCredentials existingWallet))
+        if (TryReadWallet(worker, out EvmWalletCredentials existingWallet))
         {
             return new EvmWalletCreated(existingWallet.Address, null, false);
         }
-        if (!string.IsNullOrWhiteSpace(settings.EvmWalletAddress)
-            || !string.IsNullOrWhiteSpace(settings.EncryptedEvmPrivateKey))
+        if (!string.IsNullOrWhiteSpace(worker.EvmWalletAddress)
+            || !string.IsNullOrWhiteSpace(worker.EncryptedEvmPrivateKey))
         {
             throw new InvalidOperationException("The existing EVM wallet cannot be decrypted on this machine.");
         }
@@ -123,8 +142,10 @@ public sealed class EvmWalletService
         }
 
         string address = key.GetPublicAddress();
-        settings.EvmWalletAddress = address;
-        settings.EncryptedEvmPrivateKey = protector.Protect(privateKey);
+        worker.EvmWalletAddress = address;
+        worker.EncryptedEvmPrivateKey = protector.Protect(privateKey);
+        worker.UpdatedAtUtc = DateTime.UtcNow;
+        UserTradingSettings settings = await GetOrCreateSettingsAsync(db, chatId, cancellationToken);
         settings.EnableTokenCreation = false;
         await db.SaveChangesAsync(cancellationToken);
 
@@ -133,12 +154,75 @@ public sealed class EvmWalletService
 
     public async Task<EvmWalletCredentials?> GetAsync(long chatId, CancellationToken cancellationToken)
     {
+        return await GetAsync(chatId, 1, cancellationToken);
+    }
+
+    public async Task<EvmWalletCredentials?> GetAsync(long chatId, int slotNumber,
+        CancellationToken cancellationToken)
+    {
+        ValidateSlot(slotNumber);
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        UserTradingSettings? settings = await db.UserTradingSettings
-            .AsNoTracking().FirstOrDefaultAsync(item => item.ChatId == chatId, cancellationToken);
+        TradingWorker? worker = await db.TradingWorkers.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                cancellationToken);
 
-        return TryReadWallet(settings, out EvmWalletCredentials wallet) ? wallet : null;
+        return TryReadWallet(worker, out EvmWalletCredentials wallet) ? wallet : null;
+    }
+
+    public async Task<TradingWorkerWallet?> GetByIdAsync(long chatId, long workerId,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        TradingWorker? worker = await db.TradingWorkers.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.Id == workerId, cancellationToken);
+
+        return TryReadWallet(worker, out EvmWalletCredentials wallet)
+            ? new TradingWorkerWallet(worker!.Id, worker.SlotNumber, wallet)
+            : null;
+    }
+
+    public async Task<IReadOnlyList<TradingWorkerWallet>> GetReadyWorkersAsync(long chatId, int count,
+        CancellationToken cancellationToken)
+    {
+        if (count < 1 || count > workerOptions.MaxWorkers)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count));
+        }
+
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        List<TradingWorker> workers = await db.TradingWorkers.AsNoTracking()
+            .Where(item => item.ChatId == chatId && item.IsEnabled && item.SlotNumber <= count)
+            .OrderBy(item => item.SlotNumber).ToListAsync(cancellationToken);
+
+        List<TradingWorkerWallet> result = [];
+        foreach (TradingWorker worker in workers)
+        {
+            if (TryReadWallet(worker, out EvmWalletCredentials wallet))
+            {
+                result.Add(new TradingWorkerWallet(worker.Id, worker.SlotNumber, wallet));
+            }
+        }
+        return result;
+    }
+
+    public async Task<IReadOnlyList<TradingWorkerState>> GetStatesAsync(long chatId,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        List<TradingWorker> workers = await db.TradingWorkers.AsNoTracking()
+            .Where(item => item.ChatId == chatId).OrderBy(item => item.SlotNumber)
+            .ToListAsync(cancellationToken);
+
+        return Enumerable.Range(1, workerOptions.MaxWorkers).Select(slot =>
+        {
+            TradingWorker? worker = workers.FirstOrDefault(item => item.SlotNumber == slot);
+            return new TradingWorkerState(worker?.Id, slot, worker?.EvmWalletAddress ?? string.Empty,
+                TryReadWallet(worker, out _));
+        }).ToList();
     }
 
     public async Task<IReadOnlyList<EvmNativeBalance>> GetBalancesAsync(string address,
@@ -171,18 +255,19 @@ public sealed class EvmWalletService
         }
     }
 
-    private bool TryReadWallet(UserTradingSettings? settings, out EvmWalletCredentials wallet)
+    private bool TryReadWallet(TradingWorker? worker, out EvmWalletCredentials wallet)
     {
         wallet = null!;
-        if (settings == null || string.IsNullOrWhiteSpace(settings.EvmWalletAddress)
-            || string.IsNullOrWhiteSpace(settings.EncryptedEvmPrivateKey))
+        if (worker == null || string.IsNullOrWhiteSpace(worker.EvmWalletAddress)
+            || string.IsNullOrWhiteSpace(worker.EncryptedEvmPrivateKey))
         {
             return false;
         }
 
         try
         {
-            wallet = new EvmWalletCredentials(settings.EvmWalletAddress, protector.Unprotect(settings.EncryptedEvmPrivateKey));
+            wallet = new EvmWalletCredentials(worker.EvmWalletAddress,
+                protector.Unprotect(worker.EncryptedEvmPrivateKey));
             return true;
         }
         catch
@@ -191,7 +276,30 @@ public sealed class EvmWalletService
         }
     }
 
-    private static async Task<UserTradingSettings> GetOrCreateAsync(AppDbContext db, long chatId,
+    private static async Task<TradingWorker> GetOrCreateWorkerAsync(AppDbContext db, long chatId,
+        int slotNumber, CancellationToken cancellationToken)
+    {
+        TradingWorker? worker = await db.TradingWorkers
+            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                cancellationToken);
+        if (worker != null)
+        {
+            return worker;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        worker = new TradingWorker
+        {
+            ChatId = chatId,
+            SlotNumber = slotNumber,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        db.TradingWorkers.Add(worker);
+        return worker;
+    }
+
+    private static async Task<UserTradingSettings> GetOrCreateSettingsAsync(AppDbContext db, long chatId,
         CancellationToken cancellationToken)
     {
         UserTradingSettings? settings = await db.UserTradingSettings.FindAsync([chatId], cancellationToken);
@@ -204,6 +312,14 @@ public sealed class EvmWalletService
         db.UserTradingSettings.Add(settings);
         return settings;
     }
+
+    private void ValidateSlot(int slotNumber)
+    {
+        if (slotNumber < 1 || slotNumber > workerOptions.MaxWorkers)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slotNumber));
+        }
+    }
 }
 
 public sealed record EvmWalletCredentials(string Address, string PrivateKey);
@@ -211,3 +327,7 @@ public sealed record EvmWalletCredentials(string Address, string PrivateKey);
 public sealed record EvmWalletCreated(string Address, string? PrivateKey, bool IsNew);
 
 public sealed record EvmNativeBalance(string Network, string Currency, decimal? Amount);
+
+public sealed record TradingWorkerWallet(long WorkerId, int SlotNumber, EvmWalletCredentials Wallet);
+
+public sealed record TradingWorkerState(long? WorkerId, int SlotNumber, string Address, bool HasWallet);

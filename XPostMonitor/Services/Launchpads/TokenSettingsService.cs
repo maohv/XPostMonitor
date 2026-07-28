@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Models;
 using XPostMonitor.Services.Telegram.Localization;
@@ -11,11 +12,14 @@ public sealed class TokenSettingsService
 {
     private readonly IServiceScopeFactory scopeFactory;
     private readonly BotTextService text;
+    private readonly TradingWorkersOptions workerOptions;
 
-    public TokenSettingsService(IServiceScopeFactory scopeFactory, BotTextService text)
+    public TokenSettingsService(IServiceScopeFactory scopeFactory, BotTextService text,
+        TradingWorkersOptions workerOptions)
     {
         this.scopeFactory = scopeFactory;
         this.text = text;
+        this.workerOptions = workerOptions;
     }
 
     public async Task<string> GetSummaryAsync(long chatId, string language,
@@ -24,6 +28,9 @@ public sealed class TokenSettingsService
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         UserTradingSettings? settings = await db.UserTradingSettings.FindAsync([chatId], cancellationToken);
+        int walletCount = await db.TradingWorkers.CountAsync(item => item.ChatId == chatId
+            && item.IsEnabled && item.EvmWalletAddress != "" && item.EncryptedEvmPrivateKey != "",
+            cancellationToken);
         List<UserChainTradingSettings> chains = await db.UserChainTradingSettings
             .Where(item => item.ChatId == chatId).ToListAsync(cancellationToken);
 
@@ -31,8 +38,7 @@ public sealed class TokenSettingsService
         [
             text.Get(language, "SettingsTitle"),
             string.Empty,
-            text.Get(language, "EvmWallet") + ": " + text.Get(language,
-                HasEvmWallet(settings) ? "Configured" : "NotConfigured"),
+            text.Get(language, "ParallelWallets") + ": " + walletCount + "/" + workerOptions.MaxWorkers,
             text.Get(language, "AutoCreateLabel") + ": " + text.Get(language,
                 settings?.EnableTokenCreation == true ? "Enabled" : "Disabled"),
             string.Empty
@@ -124,11 +130,6 @@ public sealed class TokenSettingsService
             return text.Get(language, "AutoDisabled");
         }
 
-        if (!HasEvmWallet(settings))
-        {
-            return text.Get(language, "LaunchpadSettingsMissing");
-        }
-
         List<WatchlistEntry> routes = await db.WatchlistEntries
             .Where(item => item.ChatId == chatId && item.TokenChain != null && item.TokenDex != null)
             .ToListAsync(cancellationToken);
@@ -140,6 +141,36 @@ public sealed class TokenSettingsService
         if (routedChains.Count == 0)
         {
             return text.Get(language, "AddRouteFirst");
+        }
+
+        int requiredWorkers = routes.Max(item => Math.Clamp(item.ParallelTokenCount, 1,
+            workerOptions.MaxWorkers));
+        List<int> readySlots = await db.TradingWorkers
+            .Where(item => item.ChatId == chatId && item.IsEnabled
+                && item.EvmWalletAddress != "" && item.EncryptedEvmPrivateKey != "")
+            .Select(item => item.SlotNumber).ToListAsync(cancellationToken);
+        int? missingSlot = Enumerable.Range(1, requiredWorkers)
+            .FirstOrDefault(slot => !readySlots.Contains(slot));
+        if (missingSlot > 0)
+        {
+            return text.Get(language, "ConfigureWorkerFirst", missingSlot);
+        }
+
+        int requiredGmgnWorkers = routes.Where(item => item.EnableAutoTrading)
+            .Select(item => Math.Clamp(item.ParallelTokenCount, 1, workerOptions.MaxWorkers))
+            .DefaultIfEmpty(0).Max();
+        if (requiredGmgnWorkers > 0)
+        {
+            List<int> gmgnSlots = await db.TradingWorkers
+                .Where(item => item.ChatId == chatId && item.IsEnabled
+                    && item.EncryptedGmgnApiKey != "" && item.EncryptedGmgnPrivateKey != "")
+                .Select(item => item.SlotNumber).ToListAsync(cancellationToken);
+            int? missingGmgnSlot = Enumerable.Range(1, requiredGmgnWorkers)
+                .FirstOrDefault(slot => !gmgnSlots.Contains(slot));
+            if (missingGmgnSlot > 0)
+            {
+                return text.Get(language, "ConfigureGmgnFirst", missingGmgnSlot);
+            }
         }
 
         List<UserChainTradingSettings> chainSettings = await db.UserChainTradingSettings
@@ -233,12 +264,6 @@ public sealed class TokenSettingsService
         return settings;
     }
 
-    private static bool HasEvmWallet(UserTradingSettings? settings)
-    {
-        return settings != null
-            && !string.IsNullOrWhiteSpace(settings.EvmWalletAddress)
-            && !string.IsNullOrWhiteSpace(settings.EncryptedEvmPrivateKey);
-    }
 }
 
 public sealed record TokenCreateSettings(decimal BuyAmount, decimal SlippagePercent);

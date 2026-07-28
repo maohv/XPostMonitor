@@ -17,16 +17,18 @@ public sealed class AutoTradingSettingsService
     private readonly IDataProtector protector;
     private readonly GmgnClient gmgnClient;
     private readonly GmgnOptions options;
+    private readonly TradingWorkersOptions workerOptions;
     private readonly BotTextService text;
 
     public AutoTradingSettingsService(IServiceScopeFactory scopeFactory,
         IDataProtectionProvider protectionProvider, GmgnClient gmgnClient,
-        GmgnOptions options, BotTextService text)
+        GmgnOptions options, TradingWorkersOptions workerOptions, BotTextService text)
     {
         this.scopeFactory = scopeFactory;
         protector = protectionProvider.CreateProtector("XPostMonitor.GmgnCredentials.v1");
         this.gmgnClient = gmgnClient;
         this.options = options;
+        this.workerOptions = workerOptions;
         this.text = text;
     }
 
@@ -35,7 +37,8 @@ public sealed class AutoTradingSettingsService
     {
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        UserTradingSettings? settings = await db.UserTradingSettings.FindAsync([chatId], cancellationToken);
+        List<TradingWorker> workers = await db.TradingWorkers.Where(item => item.ChatId == chatId)
+            .OrderBy(item => item.SlotNumber).ToListAsync(cancellationToken);
         List<TakeProfitSetting> levels = await db.TakeProfitSettings.Where(item => item.ChatId == chatId)
             .OrderBy(item => item.ProfitPercent).ToListAsync(cancellationToken);
 
@@ -43,7 +46,13 @@ public sealed class AutoTradingSettingsService
         [
             text.Get(language, "TradingSettingsTitle"),
             string.Empty,
-            "GMGN: " + text.Get(language, TryGetCredentials(settings, out _) ? "Configured" : "NotConfigured"),
+            .. Enumerable.Range(1, workerOptions.MaxWorkers).Select(slot =>
+            {
+                TradingWorker? worker = workers.FirstOrDefault(item => item.SlotNumber == slot);
+                return text.Get(language, "Worker") + " " + slot + " GMGN: "
+                    + text.Get(language, TryGetCredentials(worker, out _) ? "Configured" : "NotConfigured");
+            }),
+            string.Empty,
             text.Get(language, "TakeProfitLevels") + ":"
         ];
 
@@ -58,6 +67,13 @@ public sealed class AutoTradingSettingsService
     public async Task<string> CreateConnectionAsync(long chatId, string language,
         CancellationToken cancellationToken)
     {
+        return await CreateConnectionAsync(chatId, 1, language, cancellationToken);
+    }
+
+    public async Task<string> CreateConnectionAsync(long chatId, int slotNumber, string language,
+        CancellationToken cancellationToken)
+    {
+        ValidateSlot(slotNumber);
         if (!IPAddress.TryParse(options.PublicServerIp, out IPAddress? ip)
             || ip.AddressFamily != AddressFamily.InterNetwork)
         {
@@ -69,9 +85,10 @@ public sealed class AutoTradingSettingsService
             GmgnSigningKeyPair keys = await gmgnClient.GenerateSigningKeyAsync(cancellationToken);
             using IServiceScope scope = scopeFactory.CreateScope();
             AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            UserTradingSettings settings = await GetOrCreateAsync(db, chatId, cancellationToken);
-            settings.EncryptedGmgnPrivateKey = protector.Protect(keys.PrivateKey);
-            settings.EncryptedGmgnApiKey = string.Empty;
+            TradingWorker worker = await GetOrCreateWorkerAsync(db, chatId, slotNumber, cancellationToken);
+            worker.EncryptedGmgnPrivateKey = protector.Protect(keys.PrivateKey);
+            worker.EncryptedGmgnApiKey = string.Empty;
+            worker.UpdatedAtUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(cancellationToken);
             return text.Get(language, "ConnectionCreated", keys.PublicKey.Trim(), options.PublicServerIp);
         }
@@ -84,6 +101,13 @@ public sealed class AutoTradingSettingsService
     public async Task<string> SaveApiKeyAsync(long chatId, string value, string language,
         CancellationToken cancellationToken)
     {
+        return await SaveApiKeyAsync(chatId, 1, value, language, cancellationToken);
+    }
+
+    public async Task<string> SaveApiKeyAsync(long chatId, int slotNumber, string value, string language,
+        CancellationToken cancellationToken)
+    {
+        ValidateSlot(slotNumber);
         value = value.Trim();
         if (value.Length < 10)
         {
@@ -92,13 +116,14 @@ public sealed class AutoTradingSettingsService
 
         using IServiceScope scope = scopeFactory.CreateScope();
         AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        UserTradingSettings settings = await GetOrCreateAsync(db, chatId, cancellationToken);
-        if (!TryUnprotect(settings.EncryptedGmgnPrivateKey, out _))
+        TradingWorker worker = await GetOrCreateWorkerAsync(db, chatId, slotNumber, cancellationToken);
+        if (!TryUnprotect(worker.EncryptedGmgnPrivateKey, out _))
         {
             return text.Get(language, "GenerateFirst");
         }
 
-        settings.EncryptedGmgnApiKey = protector.Protect(value);
+        worker.EncryptedGmgnApiKey = protector.Protect(value);
+        worker.UpdatedAtUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return text.Get(language, "ApiKeySaved");
     }
@@ -106,7 +131,13 @@ public sealed class AutoTradingSettingsService
     public async Task<string> CheckConnectionAsync(long chatId, string language,
         CancellationToken cancellationToken)
     {
-        GmgnCredentials? credentials = await GetCredentialsAsync(chatId, cancellationToken);
+        return await CheckConnectionAsync(chatId, 1, language, cancellationToken);
+    }
+
+    public async Task<string> CheckConnectionAsync(long chatId, int slotNumber, string language,
+        CancellationToken cancellationToken)
+    {
+        GmgnCredentials? credentials = await GetCredentialsBySlotAsync(chatId, slotNumber, cancellationToken);
         if (credentials == null)
         {
             return text.Get(language, "ConnectFirst");
@@ -198,32 +229,75 @@ public sealed class AutoTradingSettingsService
     public async Task<GmgnCredentials?> GetCredentialsAsync(long chatId,
         CancellationToken cancellationToken)
     {
-        using IServiceScope scope = scopeFactory.CreateScope();
-        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        UserTradingSettings? settings = await db.UserTradingSettings.FindAsync([chatId], cancellationToken);
-        return TryGetCredentials(settings, out GmgnCredentials credentials) ? credentials : null;
+        return await GetCredentialsBySlotAsync(chatId, 1, cancellationToken);
     }
 
-    private static async Task<UserTradingSettings> GetOrCreateAsync(AppDbContext db, long chatId,
+    public async Task<GmgnCredentials?> GetCredentialsBySlotAsync(long chatId, int slotNumber,
         CancellationToken cancellationToken)
     {
-        UserTradingSettings? settings = await db.UserTradingSettings.FindAsync([chatId], cancellationToken);
-        if (settings != null)
-        {
-            return settings;
-        }
-
-        settings = new UserTradingSettings { ChatId = chatId };
-        db.UserTradingSettings.Add(settings);
-        return settings;
+        ValidateSlot(slotNumber);
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        TradingWorker? worker = await db.TradingWorkers.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                cancellationToken);
+        return TryGetCredentials(worker, out GmgnCredentials credentials) ? credentials : null;
     }
 
-    private bool TryGetCredentials(UserTradingSettings? settings, out GmgnCredentials credentials)
+    public async Task<GmgnCredentials?> GetCredentialsAsync(long chatId, long workerId,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        TradingWorker? worker = await db.TradingWorkers.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.Id == workerId, cancellationToken);
+        return TryGetCredentials(worker, out GmgnCredentials credentials) ? credentials : null;
+    }
+
+    public async Task<IReadOnlyList<GmgnWorkerState>> GetWorkerStatesAsync(long chatId,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        List<TradingWorker> workers = await db.TradingWorkers.AsNoTracking()
+            .Where(item => item.ChatId == chatId).OrderBy(item => item.SlotNumber)
+            .ToListAsync(cancellationToken);
+        return Enumerable.Range(1, workerOptions.MaxWorkers).Select(slot =>
+        {
+            TradingWorker? worker = workers.FirstOrDefault(item => item.SlotNumber == slot);
+            return new GmgnWorkerState(slot, TryGetCredentials(worker, out _));
+        }).ToList();
+    }
+
+    private static async Task<TradingWorker> GetOrCreateWorkerAsync(AppDbContext db, long chatId,
+        int slotNumber, CancellationToken cancellationToken)
+    {
+        TradingWorker? worker = await db.TradingWorkers
+            .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                cancellationToken);
+        if (worker != null)
+        {
+            return worker;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        worker = new TradingWorker
+        {
+            ChatId = chatId,
+            SlotNumber = slotNumber,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        db.TradingWorkers.Add(worker);
+        return worker;
+    }
+
+    private bool TryGetCredentials(TradingWorker? worker, out GmgnCredentials credentials)
     {
         credentials = null!;
-        if (settings == null
-            || !TryUnprotect(settings.EncryptedGmgnApiKey, out string apiKey)
-            || !TryUnprotect(settings.EncryptedGmgnPrivateKey, out string privateKey))
+        if (worker == null
+            || !TryUnprotect(worker.EncryptedGmgnApiKey, out string apiKey)
+            || !TryUnprotect(worker.EncryptedGmgnPrivateKey, out string privateKey))
         {
             return false;
         }
@@ -250,6 +324,16 @@ public sealed class AutoTradingSettingsService
             return false;
         }
     }
+
+    private void ValidateSlot(int slotNumber)
+    {
+        if (slotNumber < 1 || slotNumber > workerOptions.MaxWorkers)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slotNumber));
+        }
+    }
 }
 
 public sealed record GmgnCredentials(string ApiKey, string PrivateKey);
+
+public sealed record GmgnWorkerState(int SlotNumber, bool HasCredentials);

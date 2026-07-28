@@ -151,4 +151,13 @@
   ,"GmgnAndAutoTrading": "GMGN API \u4e0e\u81ea\u52a8\u4ea4\u6613"
   ,"DefaultBuyAmounts": "\u9ed8\u8ba4\u4e70\u5165\u91d1\u989d"
   ,"ChooseBuyAmountNetwork": "\u9009\u62e9\u7f51\u7edc\u5e76\u8bbe\u7f6e\u9ed8\u8ba4\u521d\u59cb\u4e70\u5165\u91d1\u989d\uff1a"
+  ,"Worker": "钱包"
+  ,"ParallelWallets": "并行钱包"
+  ,"ChooseWorkerWallet": "选择要配置的钱包："
+  ,"ConfigureWorkerFirst": "请先配置钱包 {0}，再选择此代币数量。"
+  ,"ConfigureWallets": "配置钱包"
+  ,"ChooseWorkerCount": "@{0} 每条 Post 要创建多少个代币？"
+  ,"TokensPerPost": "每条 Post 的代币数"
+  ,"ConfigureGmgnFirst": "请先为钱包 {0} 配置 GMGN，再开启自动交易。"
+  ,"ConfigureGmgn": "配置 GMGN"
 }
