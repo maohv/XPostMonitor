@@ -91,7 +91,7 @@ public sealed class WatchlistMenuService
             if (values.Length >= 2)
             {
                 string? anchor = values.Length == 3 ? values[2] : null;
-                if (values[1] == "fourmeme")
+                if (LaunchpadCatalog.SupportsCreatorTax(values[1]))
                 {
                     await ShowCreatorTaxAsync(chatId, username, values[0], values[1], language,
                         cancellationToken);
@@ -133,7 +133,8 @@ public sealed class WatchlistMenuService
             {
                 string? option = values[2] == "none" ? null : values[2];
                 string? anchor = values[1] == "long" ? option : null;
-                int creatorTaxPercent = values[1] == "fourmeme" && int.TryParse(option, out int tax) ? tax : 0;
+                int creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(values[1])
+                    && int.TryParse(option, out int tax) ? tax : 0;
                 await ShowWorkerCountAsync(chatId, username, values[0], values[1], anchor,
                     creatorTaxPercent, autoTrading == 1, language, cancellationToken);
             }
@@ -182,7 +183,8 @@ public sealed class WatchlistMenuService
 
                 string? option = values[2] == "none" ? null : values[2];
                 string? anchor = values[1] == "long" ? option : null;
-                int creatorTaxPercent = values[1] == "fourmeme" && int.TryParse(option, out int tax) ? tax : 0;
+                int creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(values[1])
+                    && int.TryParse(option, out int tax) ? tax : 0;
                 await ShowConfirmationAsync(chatId, username, values[0], values[1], anchor,
                     creatorTaxPercent, autoTrading == 1, workerCount, language, cancellationToken);
             }
@@ -195,7 +197,7 @@ public sealed class WatchlistMenuService
             string? selectedChain = values[0] == "none" ? null : values[0];
             string? selectedDex = values.Length < 2 || values[1] == "none" ? null : values[1];
             string? selectedAnchor = selectedDex == "long" && values.Length >= 3 ? values[2] : null;
-            int creatorTaxPercent = selectedDex == "fourmeme" && values.Length >= 3
+            int creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(selectedDex) && values.Length >= 3
                 && int.TryParse(values[2], out int tax) ? tax : 0;
             bool enableAutoTrading = values.Length >= 4 && values[3] == "1";
             int workerCount = values.Length == 5 && int.TryParse(values[4], out int selectedCount)
@@ -245,7 +247,7 @@ public sealed class WatchlistMenuService
     private async Task ShowCreatorTaxAsync(long chatId, string username, string chain, string dex, string language,
         CancellationToken cancellationToken)
     {
-        int[] rates = [0, 1, 3, 5, 10];
+        int[] rates = dex == "flap" ? [1, 3, 5, 10] : [0, 1, 3, 5, 10];
         List<IReadOnlyList<TelegramInlineButton>> buttons = rates
             .Select(rate => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(rate == 0 ? text.Get(language, "NoCreatorTax") : rate + "%",
@@ -271,7 +273,8 @@ public sealed class WatchlistMenuService
         IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
         [
             [new TelegramInlineButton(text.Get(language, "Confirm"), "watch:save:" + username + ":" + chain + "," + dex
-                + "," + (anchor ?? (dex == "fourmeme" ? creatorTaxPercent.ToString() : "none"))
+                + "," + (anchor ?? (LaunchpadCatalog.SupportsCreatorTax(dex)
+                    ? creatorTaxPercent.ToString() : "none"))
                 + "," + (enableAutoTrading ? "1" : "0") + "," + workerCount)],
             [new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]
         ];
@@ -281,7 +284,7 @@ public sealed class WatchlistMenuService
             + text.Get(language, "Network") + ": " + network.DisplayName + "\n"
             + text.Get(language, "Launchpad") + ": " + launchpad.DisplayName
             + (anchor == null ? string.Empty : "\n" + text.Get(language, "StockAnchor") + ": " + anchor)
-            + (dex == "fourmeme" ? "\n" + text.Get(language, "CreatorTax") + ": "
+            + (LaunchpadCatalog.SupportsCreatorTax(dex) ? "\n" + text.Get(language, "CreatorTax") + ": "
                 + (creatorTaxPercent == 0 ? text.Get(language, "NoCreatorTax") : creatorTaxPercent + "%")
                 : string.Empty)
             + (dex == "pons" ? "\n" + text.Get(language, "CreatorFee") + ": 70%" : string.Empty)
@@ -295,7 +298,8 @@ public sealed class WatchlistMenuService
         string? anchor, int creatorTaxPercent, bool enableAutoTrading, string language,
         CancellationToken cancellationToken)
     {
-        string option = anchor ?? (dex == "fourmeme" ? creatorTaxPercent.ToString() : "none");
+        string option = anchor ?? (LaunchpadCatalog.SupportsCreatorTax(dex)
+            ? creatorTaxPercent.ToString() : "none");
         string route = chain + "," + dex + "," + option + "," + (enableAutoTrading ? "1" : "0") + ",";
         List<IReadOnlyList<TelegramInlineButton>> buttons = Enumerable.Range(1, workerOptions.MaxWorkers)
             .Select(count => (IReadOnlyList<TelegramInlineButton>)[new TelegramInlineButton(count.ToString(),
@@ -309,7 +313,8 @@ public sealed class WatchlistMenuService
     private async Task ShowAutoTradingAsync(long chatId, string username, string chain, string dex, string? anchor,
         int creatorTaxPercent, string language, CancellationToken cancellationToken)
     {
-        string option = anchor ?? (dex == "fourmeme" ? creatorTaxPercent.ToString() : "none");
+        string option = anchor ?? (LaunchpadCatalog.SupportsCreatorTax(dex)
+            ? creatorTaxPercent.ToString() : "none");
         string route = chain + "," + dex + "," + option + ",";
         if (chain == "stable")
         {

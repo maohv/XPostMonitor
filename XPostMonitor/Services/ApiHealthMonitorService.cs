@@ -7,6 +7,7 @@ using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
+using XPostMonitor.Services.Launchpads.Flap;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Launchpads.PonsRobinhood;
 using XPostMonitor.Services.OpenAi;
@@ -27,6 +28,7 @@ public sealed class ApiHealthMonitorService : BackgroundService
     private readonly GmgnClient gmgnClient;
     private readonly AutoTradingSettingsService tradingSettings;
     private readonly FourMemeClient fourMemeClient;
+    private readonly FlapClient flapClient;
     private readonly DyorStableClient dyorStableClient;
     private readonly LongRobinhoodClient longRobinhoodClient;
     private readonly PonsRobinhoodClient ponsRobinhoodClient;
@@ -40,7 +42,7 @@ public sealed class ApiHealthMonitorService : BackgroundService
         XApiClient xApiClient, TelegramApiClient telegramApi, OpenAiClient openAiClient,
         FluxClient fluxClient, GmgnClient gmgnClient, AutoTradingSettingsService tradingSettings,
         FourMemeClient fourMemeClient, DyorStableClient dyorStableClient,
-        LongRobinhoodClient longRobinhoodClient, PonsRobinhoodClient ponsRobinhoodClient,
+        LongRobinhoodClient longRobinhoodClient, PonsRobinhoodClient ponsRobinhoodClient, FlapClient flapClient,
         GmgnOptions gmgnOptions, DyorStableOptions dyorOptions, LongRobinhoodOptions longOptions,
         PonsRobinhoodOptions ponsOptions, ILogger<ApiHealthMonitorService> logger)
     {
@@ -53,6 +55,7 @@ public sealed class ApiHealthMonitorService : BackgroundService
         this.gmgnClient = gmgnClient;
         this.tradingSettings = tradingSettings;
         this.fourMemeClient = fourMemeClient;
+        this.flapClient = flapClient;
         this.dyorStableClient = dyorStableClient;
         this.longRobinhoodClient = longRobinhoodClient;
         this.ponsRobinhoodClient = ponsRobinhoodClient;
@@ -95,6 +98,15 @@ public sealed class ApiHealthMonitorService : BackgroundService
         {
             FourMemeConnectionResult result = await fourMemeClient.CheckAsync(null, token);
             return "launch fee " + result.LaunchFee + " BNB";
+        }, cancellationToken);
+        await CheckAsync("Flap Portal + BSC RPC", async token =>
+        {
+            FlapConnectionResult result = await flapClient.CheckAsync(token);
+            if (!result.CorrectChain || !result.PortalFound)
+            {
+                throw new InvalidOperationException("wrong chain or Portal contract missing");
+            }
+            return "tax token Portal ready";
         }, cancellationToken);
         await CheckAsync("Stable RPC + DYOR", async token =>
         {

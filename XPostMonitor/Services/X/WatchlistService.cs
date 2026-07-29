@@ -46,9 +46,9 @@ public sealed class WatchlistService
             return text.Get(language, "UnsupportedRoute");
         }
 
-        creatorTaxPercent = string.Equals(dex, "fourmeme", StringComparison.OrdinalIgnoreCase)
+        creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(dex)
             ? creatorTaxPercent : 0;
-        if (creatorTaxPercent is not (0 or 1 or 3 or 5 or 10))
+        if (!LaunchpadCatalog.IsValidCreatorTax(dex, creatorTaxPercent))
         {
             return text.Get(language, "UnsupportedRoute");
         }
@@ -248,7 +248,7 @@ public sealed class WatchlistService
 
     private string FormatCreatorTax(string? dex, int creatorTaxPercent, string language)
     {
-        return dex == "fourmeme"
+        return LaunchpadCatalog.SupportsCreatorTax(dex)
             ? " · " + text.Get(language, "CreatorTax") + ": "
                 + (creatorTaxPercent == 0 ? text.Get(language, "NoCreatorTax") : creatorTaxPercent + "%")
             : string.Empty;

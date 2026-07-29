@@ -73,6 +73,29 @@ public sealed class TelegramApiClient
         await CheckResponseAsync(response, cancellationToken);
     }
 
+    // Cáº­p nháº­t ngay menu hiá»‡n táº¡i Ä‘á»ƒ user cÃ³ thá»ƒ báº¥m nhiá»u lá»±a chá»n liÃªn tá»¥c.
+    public async Task EditButtonsAsync(long chatId, long messageId, string text,
+        IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons, CancellationToken cancellationToken)
+    {
+        var request = new
+        {
+            chat_id = chatId,
+            message_id = messageId,
+            text,
+            reply_markup = new { inline_keyboard = buttons }
+        };
+
+        using HttpResponseMessage response = await httpClient.PostAsJsonAsync(GetUrl("editMessageText"),
+            request, cancellationToken);
+        TelegramBasicResponse? result = await response.Content
+            .ReadFromJsonAsync<TelegramBasicResponse>(cancellationToken);
+        if (result?.Description?.Contains("message is not modified", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return;
+        }
+        CheckResponse(response, result);
+    }
+
     // Báo Telegram rằng bot đã nhận lần bấm nút để ngừng biểu tượng loading.
     public async Task AnswerCallbackAsync(string callbackId, CancellationToken cancellationToken)
     {

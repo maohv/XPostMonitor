@@ -6,6 +6,7 @@ using XPostMonitor.Configuration;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
+using XPostMonitor.Services.Launchpads.Flap;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Launchpads.PonsRobinhood;
 using XPostMonitor.Services.Gmgn;
@@ -21,6 +22,7 @@ public sealed class TokenCreationService : BackgroundService
     private readonly TokenSettingsService tokenSettings;
     private readonly TokenPreviewService tokenPreviewService;
     private readonly FourMemeClient fourMemeClient;
+    private readonly FlapClient flapClient;
     private readonly DyorStableClient dyorStableClient;
     private readonly LongRobinhoodClient longRobinhoodClient;
     private readonly PonsRobinhoodClient ponsRobinhoodClient;
@@ -35,13 +37,14 @@ public sealed class TokenCreationService : BackgroundService
 
     public TokenCreationService(TokenSettingsService tokenSettings, TokenPreviewService tokenPreviewService,
         FourMemeClient fourMemeClient, DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient,
-        PonsRobinhoodClient ponsRobinhoodClient, EvmWalletService evmWalletService,
+        PonsRobinhoodClient ponsRobinhoodClient, FlapClient flapClient, EvmWalletService evmWalletService,
         AutoTradingService autoTradingService, TelegramApiClient telegramApi, BotTextService text,
         TradingWorkersOptions workerOptions, ILogger<TokenCreationService> logger)
     {
         this.tokenSettings = tokenSettings;
         this.tokenPreviewService = tokenPreviewService;
         this.fourMemeClient = fourMemeClient;
+        this.flapClient = flapClient;
         this.dyorStableClient = dyorStableClient;
         this.longRobinhoodClient = longRobinhoodClient;
         this.ponsRobinhoodClient = ponsRobinhoodClient;
@@ -220,6 +223,11 @@ public sealed class TokenCreationService : BackgroundService
         {
             caption += "\n" + text.Get(request.Language, "CreatorFee") + ": 70%";
         }
+        if (request.Launchpad == "flap")
+        {
+            caption += "\n" + text.Get(request.Language, "CreatorTax") + ": "
+                + request.CreatorTaxPercent + "%";
+        }
         if (!string.IsNullOrWhiteSpace(result.TransactionHash))
         {
             caption += "\n" + text.Get(request.Language, "Transaction") + ": " + result.TransactionHash;
@@ -239,7 +247,7 @@ public sealed class TokenCreationService : BackgroundService
             await autoTradingService.QueueAsync(request.ChatId, worker.WorkerId, request.PostId, request.Chain,
                 request.Launchpad, result.TokenAddress, preview.Draft.Name, preview.Draft.Symbol,
                 worker.Wallet.Address, settings.SlippagePercent, result.TransactionHash, request.Language,
-                cancellationToken);
+                request.VariantCount, cancellationToken);
         }
         else if (!result.IsDryRun)
         {
@@ -275,6 +283,17 @@ public sealed class TokenCreationService : BackgroundService
                 cancellationToken);
             return new TokenResult(dyorResult.TransactionHash, dyorResult.EstimatedGas, dyorResult.IsDryRun,
                 dyorResult.HasEnoughBalance, dyorResult.TokenAddress);
+        }
+
+        if (request.Launchpad == "flap")
+        {
+            FlapTokenRequest flapRequest = new FlapTokenRequest(preview.Draft.Name,
+                preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount,
+                request.CreatorTaxPercent);
+            FlapTokenResult flapResult = await flapClient.CreateTokenAsync(wallet, flapRequest,
+                cancellationToken);
+            return new TokenResult(flapResult.TransactionHash, flapResult.EstimatedGas, flapResult.IsDryRun,
+                flapResult.HasEnoughBalance, flapResult.TokenAddress);
         }
 
         if (request.Launchpad == "pons")

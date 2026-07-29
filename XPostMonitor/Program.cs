@@ -7,11 +7,13 @@ using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.Gmgn.Launchpads;
 using XPostMonitor.Services.Gmgn.Launchpads.FourMeme;
+using XPostMonitor.Services.Gmgn.Launchpads.Flap;
 using XPostMonitor.Services.Gmgn.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Gmgn.Launchpads.Pons;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
+using XPostMonitor.Services.Launchpads.Flap;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Launchpads.PonsRobinhood;
 using XPostMonitor.Services.OpenAi;
@@ -53,6 +55,10 @@ FourMemeOptions fourMemeOptions = new FourMemeOptions();
 builder.Configuration.GetSection(FourMemeOptions.SectionName).Bind(fourMemeOptions);
 builder.Services.AddSingleton(fourMemeOptions);
 
+FlapOptions flapOptions = new FlapOptions();
+builder.Configuration.GetSection(FlapOptions.SectionName).Bind(flapOptions);
+builder.Services.AddSingleton(flapOptions);
+
 DyorStableOptions dyorStableOptions = new DyorStableOptions();
 builder.Configuration.GetSection(DyorStableOptions.SectionName).Bind(dyorStableOptions);
 builder.Services.AddSingleton(dyorStableOptions);
@@ -82,6 +88,13 @@ builder.Configuration.GetSection(TradingWorkersOptions.SectionName).Bind(trading
 tradingWorkersOptions.MaxWorkers = Math.Max(1, tradingWorkersOptions.MaxWorkers);
 builder.Services.AddSingleton(tradingWorkersOptions);
 
+AutoTradingOptions autoTradingOptions = new AutoTradingOptions();
+builder.Configuration.GetSection(AutoTradingOptions.SectionName).Bind(autoTradingOptions);
+autoTradingOptions.NoBuyerTimeoutSeconds = Math.Max(1, autoTradingOptions.NoBuyerTimeoutSeconds);
+autoTradingOptions.FirstTakeProfitTimeoutSeconds = Math.Max(1,
+    autoTradingOptions.FirstTakeProfitTimeoutSeconds);
+builder.Services.AddSingleton(autoTradingOptions);
+
 builder.Services.AddHttpClient<XApiClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.x.com/");
@@ -109,6 +122,12 @@ builder.Services.AddHttpClient<FluxClient>(client =>
 builder.Services.AddHttpClient<FourMemeClient>(client =>
 {
     client.BaseAddress = new Uri("https://four.meme/meme-api/v1/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient<FlapClient>(client =>
+{
+    client.BaseAddress = new Uri("https://funcs.flap.sh/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
@@ -143,6 +162,7 @@ builder.Services.AddSingleton<PremiumService>();
 builder.Services.AddSingleton<GmgnClient>();
 builder.Services.AddSingleton<AutoTradingSettingsService>();
 builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, FourMemeAutoTradingHandler>();
+builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, FlapAutoTradingHandler>();
 builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, PonsAutoTradingHandler>();
 builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, LongRobinhoodAutoTradingHandler>();
 builder.Services.AddSingleton<AutoTradingService>();

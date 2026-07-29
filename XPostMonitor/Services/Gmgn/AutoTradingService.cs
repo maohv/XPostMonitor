@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.Concurrent;
 using System.Numerics;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
@@ -30,12 +31,14 @@ public sealed class AutoTradingService : BackgroundService
     private readonly BotTextService text;
     private readonly ILogger<AutoTradingService> logger;
     private readonly TradingWorkersOptions workerOptions;
+    private readonly AutoTradingOptions autoTradingOptions;
     private readonly Channel<AutoTradingRequest> queue = Channel.CreateUnbounded<AutoTradingRequest>();
+    private readonly ConcurrentDictionary<string, GroupedNotification> groupedNotifications = new();
 
     public AutoTradingService(IServiceScopeFactory scopeFactory, AutoTradingSettingsService settings,
         GmgnClient gmgnClient, IEnumerable<IAutoTradingLaunchpadHandler> launchpadHandlers,
         TelegramApiClient telegramApi, BotTextService text, TradingWorkersOptions workerOptions,
-        ILogger<AutoTradingService> logger)
+        AutoTradingOptions autoTradingOptions, ILogger<AutoTradingService> logger)
     {
         this.scopeFactory = scopeFactory;
         this.settings = settings;
@@ -44,19 +47,20 @@ public sealed class AutoTradingService : BackgroundService
         this.telegramApi = telegramApi;
         this.text = text;
         this.workerOptions = workerOptions;
+        this.autoTradingOptions = autoTradingOptions;
         this.logger = logger;
     }
 
     public async ValueTask QueueAsync(long chatId, long tradingWorkerId, string postId, string chain,
         string launchpad,
         string tokenAddress, string tokenName, string tokenSymbol, string walletAddress, decimal slippagePercent,
-        string? launchTransactionHash, string language, CancellationToken cancellationToken)
+        string? launchTransactionHash, string language, int groupSize, CancellationToken cancellationToken)
     {
         await AutoTradingDiagnosticLog.WriteAsync("QUEUED | Post=" + postId + " | Symbol=" + tokenSymbol
             + " | Chain=" + chain + " | Launchpad=" + launchpad + " | Token=" + tokenAddress);
         await queue.Writer.WriteAsync(new AutoTradingRequest(chatId, tradingWorkerId, postId, chain, launchpad,
             tokenAddress, tokenName, tokenSymbol, walletAddress, slippagePercent, launchTransactionHash,
-            BotTextService.Normalize(language)),
+            BotTextService.Normalize(language), groupSize),
             cancellationToken);
     }
 
@@ -98,7 +102,7 @@ public sealed class AutoTradingService : BackgroundService
             + " | Token=" + request.TokenAddress);
         Task preparationTask = PrepareAsync(request, preparationCancellation.Token);
 
-        TimeSpan buyerTimeout = TimeSpan.FromSeconds(30);
+        TimeSpan buyerTimeout = TimeSpan.FromSeconds(autoTradingOptions.NoBuyerTimeoutSeconds);
         DateTimeOffset buyerDeadline = DateTimeOffset.UtcNow.Add(buyerTimeout);
         DateTimeOffset? firstExternalBuy = null;
         try
@@ -128,7 +132,8 @@ public sealed class AutoTradingService : BackgroundService
             return;
         }
 
-        await Task.Delay(TimeSpan.FromSeconds(60), cancellationToken);
+        await Task.Delay(TimeSpan.FromSeconds(autoTradingOptions.FirstTakeProfitTimeoutSeconds),
+            cancellationToken);
         bool firstTakeProfitFilled = await IsFirstTakeProfitFilledAsync(request, cancellationToken);
         string? exitReason = GetAutoExitReason(request.Language, true, firstTakeProfitFilled);
         if (exitReason == null)
@@ -147,12 +152,12 @@ public sealed class AutoTradingService : BackgroundService
     {
         if (!hasExternalBuyer)
         {
-            return text.Get(language, "AutoExitNoBuyer");
+            return text.Get(language, "AutoExitNoBuyer", autoTradingOptions.NoBuyerTimeoutSeconds);
         }
 
         return firstTakeProfitFilled
             ? null
-            : text.Get(language, "AutoExitTp1Timeout");
+            : text.Get(language, "AutoExitTp1Timeout", autoTradingOptions.FirstTakeProfitTimeoutSeconds);
     }
 
     private async Task<DateTimeOffset?> WaitForExternalBuyAsync(AutoTradingRequest request,
@@ -302,9 +307,16 @@ public sealed class AutoTradingService : BackgroundService
             await MarkTradeExitedAsync(request, reason, cancellationToken);
             await AutoTradingDiagnosticLog.WriteAsync("AUTO EXIT SOLD | Symbol=" + request.TokenSymbol
                 + " | Reason=" + reason + " | Reference=" + sellReference);
-            await telegramApi.SendMessageAsync(request.ChatId,
-                text.Get(request.Language, "AutoExitSold", request.TokenSymbol, reason, sellReference),
-                cancellationToken);
+            if (request.GroupSize == 1)
+            {
+                await telegramApi.SendMessageAsync(request.ChatId,
+                    text.Get(request.Language, "AutoExitSold", request.TokenSymbol, reason, sellReference),
+                    cancellationToken);
+            }
+            else
+            {
+                AddGroupedNotification(request, "exit", null, reason, sellReference);
+            }
         }
         catch (Exception exception)
         {
@@ -505,8 +517,16 @@ public sealed class AutoTradingService : BackgroundService
             string levelText = string.Join("\n", levels.Select((level, index) => "TP" + (index + 1)
                 + ": +" + level.ProfitPercent.ToString(CultureInfo.InvariantCulture) + "% -> "
                 + level.SellPercent.ToString(CultureInfo.InvariantCulture) + "%"));
-            await telegramApi.SendMessageAsync(request.ChatId,
-                text.Get(request.Language, "AutoTradingStarted", request.TokenSymbol, levelText), cancellationToken);
+            if (request.GroupSize == 1)
+            {
+                await telegramApi.SendMessageAsync(request.ChatId,
+                    text.Get(request.Language, "AutoTradingStarted", request.TokenSymbol, levelText),
+                    cancellationToken);
+            }
+            else
+            {
+                AddGroupedNotification(request, "tp", levelText, null, null);
+            }
         }
         catch (Exception exception)
         {
@@ -566,9 +586,16 @@ public sealed class AutoTradingService : BackgroundService
         string levelText = string.Join("\n", levels.Select((level, index) => "TP" + (index + 1)
             + ": +" + level.ProfitPercent.ToString(CultureInfo.InvariantCulture) + "% -> "
             + level.SellPercent.ToString(CultureInfo.InvariantCulture) + "%"));
-        await telegramApi.SendMessageAsync(request.ChatId,
-            text.Get(request.Language, "LocalAutoTradingStarted", request.TokenSymbol, levelText),
-            cancellationToken);
+        if (request.GroupSize == 1)
+        {
+            await telegramApi.SendMessageAsync(request.ChatId,
+                text.Get(request.Language, "LocalAutoTradingStarted", request.TokenSymbol, levelText),
+                cancellationToken);
+        }
+        else
+        {
+            AddGroupedNotification(request, "local-tp", levelText, null, null);
+        }
     }
 
     private async Task MonitorLoopAsync(CancellationToken cancellationToken)
@@ -793,8 +820,89 @@ public sealed class AutoTradingService : BackgroundService
         return value.Length <= 500 ? value : value[..500];
     }
 
+    private void AddGroupedNotification(AutoTradingRequest request, string eventName, string? levels,
+        string? reason, string? reference)
+    {
+        string key = request.ChatId + ":" + request.PostId + ":" + request.Chain + ":"
+            + request.Launchpad + ":" + eventName;
+        GroupedNotification notification = groupedNotifications.GetOrAdd(key,
+            _ => new GroupedNotification(request.ChatId, request.Language, eventName, request.GroupSize));
+        bool startFlush;
+        lock (notification)
+        {
+            notification.Items.Add(new GroupedNotificationItem(request.TokenName, request.TokenSymbol,
+                levels, reason, reference));
+            startFlush = !notification.FlushStarted;
+            notification.FlushStarted = true;
+            if (notification.Items.Count >= notification.ExpectedCount)
+            {
+                notification.Ready.TrySetResult();
+            }
+        }
+        if (startFlush)
+        {
+            _ = FlushGroupedNotificationAsync(key, notification);
+        }
+    }
+
+    private async Task FlushGroupedNotificationAsync(string key, GroupedNotification notification)
+    {
+        try
+        {
+            await Task.WhenAny(notification.Ready.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+            groupedNotifications.TryRemove(key, out _);
+            List<GroupedNotificationItem> items;
+            lock (notification)
+            {
+                items = notification.Items.ToList();
+            }
+            if (items.Count == 0)
+            {
+                return;
+            }
+
+            string names = string.Join(", ", items.Select(item => item.TokenName).Distinct());
+            string message;
+            if (notification.EventName == "exit")
+            {
+                string references = string.Join("\n", items.Select((item, index) =>
+                    (index + 1) + ". " + item.TokenSymbol + ": " + item.Reference));
+                string reasons = string.Join("; ", items.Select(item => item.Reason).Distinct());
+                message = text.Get(notification.Language, "GroupedAutoExitSold", items.Count, names,
+                    references, reasons);
+            }
+            else
+            {
+                string levels = items.First().Levels!;
+                string messageKey = notification.EventName == "local-tp"
+                    ? "GroupedLocalAutoTradingStarted"
+                    : "GroupedAutoTradingStarted";
+                message = text.Get(notification.Language, messageKey, items.Count, names, levels);
+            }
+            await telegramApi.SendMessageAsync(notification.ChatId, message, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Cannot send grouped Auto Trading notification.");
+        }
+    }
+
     private sealed record AutoTradingRequest(long ChatId, long TradingWorkerId, string PostId, string Chain,
         string Launchpad,
         string TokenAddress, string TokenName, string TokenSymbol, string WalletAddress, decimal SlippagePercent,
-        string? LaunchTransactionHash, string Language);
+        string? LaunchTransactionHash, string Language, int GroupSize);
+
+    private sealed class GroupedNotification(long chatId, string language, string eventName, int expectedCount)
+    {
+        public long ChatId { get; } = chatId;
+        public string Language { get; } = language;
+        public string EventName { get; } = eventName;
+        public int ExpectedCount { get; } = expectedCount;
+        public bool FlushStarted { get; set; }
+        public TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<GroupedNotificationItem> Items { get; } = [];
+    }
+
+    private sealed record GroupedNotificationItem(string TokenName, string TokenSymbol, string? Levels,
+        string? Reason, string? Reference);
 }

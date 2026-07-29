@@ -20,6 +20,7 @@ public sealed class ManualTokenMenuService
     private readonly TokenCreationService tokenCreation;
     private readonly EvmWalletService evmWalletService;
     private readonly FourMemeOptions fourMemeOptions;
+    private readonly FlapOptions flapOptions;
     private readonly DyorStableOptions dyorStableOptions;
     private readonly LongRobinhoodOptions longRobinhoodOptions;
     private readonly PonsRobinhoodOptions ponsRobinhoodOptions;
@@ -28,11 +29,12 @@ public sealed class ManualTokenMenuService
     private readonly TradingWorkersOptions workerOptions;
     private readonly bool enableManualTokenCreation;
     private readonly ConcurrentDictionary<long, PendingManualImage> pendingImages = new();
+    private readonly ConcurrentDictionary<(long ChatId, string PostId), ManualTokenSelection> selections = new();
 
     public ManualTokenMenuService(TelegramApiClient telegramApi, XApiClient xApiClient,
         TokenSettingsService tokenSettings, TokenCreationService tokenCreation,
         EvmWalletService evmWalletService, FourMemeOptions fourMemeOptions,
-        DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions,
+        FlapOptions flapOptions, DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions,
         PonsRobinhoodOptions ponsRobinhoodOptions, BotTextService text,
         TokenPreviewService tokenPreviewService, BotOptions botOptions, TradingWorkersOptions workerOptions)
     {
@@ -42,6 +44,7 @@ public sealed class ManualTokenMenuService
         this.tokenCreation = tokenCreation;
         this.evmWalletService = evmWalletService;
         this.fourMemeOptions = fourMemeOptions;
+        this.flapOptions = flapOptions;
         this.dyorStableOptions = dyorStableOptions;
         this.longRobinhoodOptions = longRobinhoodOptions;
         this.ponsRobinhoodOptions = ponsRobinhoodOptions;
@@ -63,7 +66,20 @@ public sealed class ManualTokenMenuService
             return;
         }
 
-        string action = enableManualTokenCreation ? "chain" : "preview";
+        if (enableManualTokenCreation)
+        {
+            foreach ((long ChatId, string PostId) key in selections.Keys.Where(key => key.ChatId == chatId))
+            {
+                selections.TryRemove(key, out _);
+            }
+
+            ManualTokenSelection selection = new ManualTokenSelection();
+            selections[(chatId, postId)] = selection;
+            await ShowAllChoicesAsync(chatId, postId, selection, language, cancellationToken);
+            return;
+        }
+
+        string action = "preview";
         List<IReadOnlyList<TelegramInlineButton>> buttons = LaunchpadCatalog.All
             .Select(network => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(network.DisplayName, "manual:" + action + ":" + postId + ":" + network.Chain)])
@@ -77,11 +93,14 @@ public sealed class ManualTokenMenuService
     public async Task HandleCallbackAsync(long chatId, long messageId, string data, string language,
         CancellationToken cancellationToken)
     {
-        await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
-
         if (data == "manual:cancel")
         {
+            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             pendingImages.TryRemove(chatId, out _);
+            foreach ((long ChatId, string PostId) key in selections.Keys.Where(key => key.ChatId == chatId))
+            {
+                selections.TryRemove(key, out _);
+            }
             return;
         }
 
@@ -93,6 +112,14 @@ public sealed class ManualTokenMenuService
         }
 
         string postId = parts[2];
+        if (parts[1] == "panel")
+        {
+            await HandlePanelAsync(chatId, messageId, postId, parts[3], language, cancellationToken);
+            return;
+        }
+
+        await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+
         if (!enableManualTokenCreation && parts[1] == "preview"
             && LaunchpadCatalog.Find(parts[3]) != null)
         {
@@ -116,7 +143,7 @@ public sealed class ManualTokenMenuService
 
         string[] route = parts[3].Split(',');
         string? anchor = route.Length >= 3 && route[1] == "long" ? route[2] : null;
-        int creatorTaxPercent = route.Length >= 3 && route[1] == "fourmeme"
+        int creatorTaxPercent = route.Length >= 3 && LaunchpadCatalog.SupportsCreatorTax(route[1])
             && int.TryParse(route[2], out int tax) ? tax : 0;
         int workerCount = ReadWorkerCount(parts[1], route);
         if (parts[1] == "market" && route.Length >= 2 && LaunchpadCatalog.IsValid(route[0], route[1]))
@@ -125,13 +152,14 @@ public sealed class ManualTokenMenuService
             return;
         }
 
-        if (parts[1] == "tax" && route.Length >= 2 && route[1] == "fourmeme")
+        if (parts[1] == "tax" && route.Length >= 2 && LaunchpadCatalog.SupportsCreatorTax(route[1]))
         {
             await ShowCreatorTaxAsync(chatId, postId, route[0], route[1], language, cancellationToken);
             return;
         }
 
-        if (route.Length < 2 || !LaunchpadCatalog.IsValidRoute(route[0], route[1], anchor))
+        if (route.Length < 2 || !LaunchpadCatalog.IsValidRoute(route[0], route[1], anchor)
+            || !LaunchpadCatalog.IsValidCreatorTax(route[1], creatorTaxPercent))
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualExpired"), cancellationToken);
             return;
@@ -166,6 +194,217 @@ public sealed class ManualTokenMenuService
         }
     }
 
+    private async Task HandlePanelAsync(long chatId, long messageId, string postId, string action, string language,
+        CancellationToken cancellationToken)
+    {
+        if (!selections.TryGetValue((chatId, postId), out ManualTokenSelection? selection))
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualExpired"), cancellationToken);
+            return;
+        }
+
+        if (action == "go")
+        {
+            if (!IsComplete(selection))
+            {
+                await ShowAllChoicesAsync(chatId, postId, selection, language, cancellationToken, true,
+                    messageId);
+                return;
+            }
+
+            selections.TryRemove((chatId, postId), out _);
+            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+            await CreateAsync(chatId, postId, selection.Chain!, selection.Dex!, selection.Anchor,
+                selection.CreatorTaxPercent!.Value, selection.WorkerCount, null, language, cancellationToken);
+            return;
+        }
+
+        if (action == "i=u")
+        {
+            if (!IsReadyForCustomImage(selection))
+            {
+                await ShowAllChoicesAsync(chatId, postId, selection, language, cancellationToken, true,
+                    messageId);
+                return;
+            }
+
+            selections.TryRemove((chatId, postId), out _);
+            pendingImages[chatId] = new PendingManualImage(postId, selection.Chain!, selection.Dex!,
+                selection.Anchor, selection.CreatorTaxPercent!.Value, selection.WorkerCount);
+            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+            await telegramApi.SendButtonsAsync(chatId, text.Get(language, "SendCustomTokenImage"),
+                [[new TelegramInlineButton("X " + text.Get(language, "Cancel"), "manual:cancel")]],
+                cancellationToken);
+            return;
+        }
+
+        string[] value = action.Split('=', 2);
+        if (value.Length != 2)
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualExpired"), cancellationToken);
+            return;
+        }
+
+        if (value[0] == "c")
+        {
+            LaunchpadNetwork? network = LaunchpadCatalog.Find(value[1]);
+            if (network != null)
+            {
+                selection.Chain = network.Chain;
+                selection.Dex = null;
+                selection.Anchor = null;
+                selection.CreatorTaxPercent = null;
+            }
+        }
+        else if (value[0] == "d" && selection.Chain != null
+            && LaunchpadCatalog.IsValid(selection.Chain, value[1]))
+        {
+            selection.Dex = value[1];
+            selection.Anchor = null;
+            selection.CreatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(selection.Dex) ? null : 0;
+        }
+        else if (value[0] == "t" && int.TryParse(value[1], out int tax)
+            && LaunchpadCatalog.IsValidCreatorTax(selection.Dex, tax))
+        {
+            selection.CreatorTaxPercent = tax;
+        }
+        else if (value[0] == "w" && int.TryParse(value[1], out int workers)
+            && workers >= 1 && workers <= workerOptions.MaxWorkers)
+        {
+            selection.WorkerCount = workers;
+        }
+        else if (value[0] == "i")
+        {
+            selection.UseCustomImage = false;
+        }
+        else if (value[0] == "a" && selection.Dex == "long"
+            && LaunchpadCatalog.FindLongAnchor(value[1]) != null)
+        {
+            selection.Anchor = value[1];
+        }
+
+        await ShowAllChoicesAsync(chatId, postId, selection, language, cancellationToken, false, messageId);
+    }
+
+    private async Task ShowAllChoicesAsync(long chatId, string postId, ManualTokenSelection selection,
+        string language, CancellationToken cancellationToken, bool showMissingWarning = false,
+        long? messageId = null)
+    {
+        LaunchpadNetwork? network = LaunchpadCatalog.Find(selection.Chain);
+        LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == selection.Dex);
+        TokenCreateSettings? settings = network == null ? null
+            : await tokenSettings.GetChainSettingsAsync(chatId, network.Chain, cancellationToken);
+        string buyAmount = network == null || settings == null
+            ? text.Get(language, "NotSet")
+            : settings.BuyAmount.ToString(CultureInfo.InvariantCulture) + " " + network.Currency;
+        string image = selection.UseCustomImage.HasValue
+            ? text.Get(language, selection.UseCustomImage.Value ? "UploadCustomImage" : "UseAutomaticImage")
+            : text.Get(language, "NotSet");
+
+        string message = text.Get(language, showMissingWarning
+                ? "ManualSelectionMissing" : "ManualSelectAll") + "\n\n"
+            + "Post: https://x.com/i/status/" + postId + "\n"
+            + text.Get(language, "Network") + ": " + (network?.DisplayName ?? text.Get(language, "NotSet")) + "\n"
+            + text.Get(language, "Launchpad") + ": " + (launchpad?.DisplayName ?? text.Get(language, "NotSet")) + "\n"
+            + text.Get(language, "DefaultBuyAmounts") + ": " + buyAmount + "\n";
+        if (selection.Dex != null && LaunchpadCatalog.SupportsCreatorTax(selection.Dex))
+        {
+            string creatorTax = selection.CreatorTaxPercent.HasValue
+                ? selection.CreatorTaxPercent.Value + "%" : text.Get(language, "NotSet");
+            message += text.Get(language, "CreatorTax") + ": " + creatorTax + "\n";
+        }
+        if (selection.Dex == "pons")
+        {
+            message += text.Get(language, "CreatorFee") + ": 70%\n";
+        }
+        if (selection.Dex == "long")
+        {
+            message += text.Get(language, "StockAnchor") + ": " + selection.Anchor + "\n";
+        }
+        message += text.Get(language, "ParallelWallets") + ": "
+            + (selection.WorkerCount > 0 ? selection.WorkerCount : text.Get(language, "NotSet")) + "\n"
+            + text.Get(language, "ChooseManualImage") + " " + image;
+
+        List<IReadOnlyList<TelegramInlineButton>> buttons =
+        [
+            LaunchpadCatalog.All.Select(item => new TelegramInlineButton(
+                Mark(item.Chain == selection.Chain, item.DisplayName),
+                "manual:panel:" + postId + ":c=" + item.Chain)).ToList()
+        ];
+
+        if (network != null)
+        {
+            buttons.Add(network.Launchpads.Select(item => new TelegramInlineButton(
+                Mark(item.Code == selection.Dex, item.DisplayName),
+                "manual:panel:" + postId + ":d=" + item.Code)).ToList());
+        }
+
+        if (LaunchpadCatalog.SupportsCreatorTax(selection.Dex))
+        {
+            int[] rates = selection.Dex == "flap" ? [1, 3, 5, 10] : [0, 1, 3, 5, 10];
+            buttons.Add(rates.Select(rate => new TelegramInlineButton(
+                Mark(rate == selection.CreatorTaxPercent, rate + "%"),
+                "manual:panel:" + postId + ":t=" + rate)).ToList());
+        }
+
+        if (selection.Dex == "long")
+        {
+            foreach (LaunchpadAnchor[] anchors in LaunchpadCatalog.LongAnchors.Chunk(2))
+            {
+                buttons.Add(anchors.Select(anchor => new TelegramInlineButton(
+                    Mark(anchor.Code == selection.Anchor, anchor.Code),
+                    "manual:panel:" + postId + ":a=" + anchor.Code)).ToList());
+            }
+        }
+
+        buttons.Add(Enumerable.Range(1, workerOptions.MaxWorkers)
+            .Select(count => new TelegramInlineButton(
+                Mark(count == selection.WorkerCount, text.Get(language, "Worker") + " x" + count),
+                "manual:panel:" + postId + ":w=" + count)).ToList());
+        buttons.Add(
+        [
+            new TelegramInlineButton(Mark(selection.UseCustomImage == false,
+                text.Get(language, "UseAutomaticImage")), "manual:panel:" + postId + ":i=a"),
+            new TelegramInlineButton(Mark(selection.UseCustomImage == true,
+                text.Get(language, "UploadCustomImage")), "manual:panel:" + postId + ":i=u")
+        ]);
+        buttons.Add(
+        [
+            new TelegramInlineButton(text.Get(language, "CreateRealToken"),
+                "manual:panel:" + postId + ":go"),
+            new TelegramInlineButton("X " + text.Get(language, "Cancel"), "manual:cancel")
+        ]);
+
+        if (messageId.HasValue)
+        {
+            await telegramApi.EditButtonsAsync(chatId, messageId.Value, message, buttons, cancellationToken);
+            return;
+        }
+
+        await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
+    }
+
+    private static string Mark(bool selected, string label)
+    {
+        return selected ? "✅ " + label : label;
+    }
+
+    private static bool IsComplete(ManualTokenSelection selection)
+    {
+        return IsReadyForCustomImage(selection)
+            && selection.UseCustomImage == false;
+    }
+
+    private static bool IsReadyForCustomImage(ManualTokenSelection selection)
+    {
+        return selection.Chain != null
+            && selection.Dex != null
+            && LaunchpadCatalog.IsValidRoute(selection.Chain, selection.Dex, selection.Anchor)
+            && selection.CreatorTaxPercent.HasValue
+            && LaunchpadCatalog.IsValidCreatorTax(selection.Dex, selection.CreatorTaxPercent.Value)
+            && selection.WorkerCount > 0;
+    }
+
     private async Task ShowLaunchpadsAsync(long chatId, string postId, string chain, string language,
         CancellationToken cancellationToken)
     {
@@ -180,7 +419,7 @@ public sealed class ManualTokenMenuService
             .Select(launchpad => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(launchpad.DisplayName, launchpad.Code == "long"
                     ? "manual:market:" + postId + ":" + chain + "," + launchpad.Code
-                    : launchpad.Code == "fourmeme"
+                    : LaunchpadCatalog.SupportsCreatorTax(launchpad.Code)
                         ? "manual:tax:" + postId + ":" + chain + "," + launchpad.Code
                         : "manual:confirm:" + postId + ":" + chain + "," + launchpad.Code)])
             .ToList();
@@ -207,7 +446,7 @@ public sealed class ManualTokenMenuService
     private async Task ShowCreatorTaxAsync(long chatId, string postId, string chain, string dex, string language,
         CancellationToken cancellationToken)
     {
-        int[] rates = [0, 1, 3, 5, 10];
+        int[] rates = dex == "flap" ? [1, 3, 5, 10] : [0, 1, 3, 5, 10];
         List<IReadOnlyList<TelegramInlineButton>> buttons = rates
             .Select(rate => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(rate == 0 ? text.Get(language, "NoCreatorTax") : rate + "%",
@@ -257,7 +496,7 @@ public sealed class ManualTokenMenuService
         {
             message += "\n" + text.Get(language, "StockAnchor") + ": " + anchor;
         }
-        if (dex == "fourmeme")
+        if (LaunchpadCatalog.SupportsCreatorTax(dex))
         {
             message += "\n" + text.Get(language, "CreatorTax") + ": "
                 + (creatorTaxPercent == 0 ? text.Get(language, "NoCreatorTax") : creatorTaxPercent + "%");
@@ -411,7 +650,8 @@ public sealed class ManualTokenMenuService
     private static string BuildRoute(string chain, string dex, string? anchor, int creatorTaxPercent)
     {
         return chain + "," + dex
-            + (anchor != null ? "," + anchor : dex == "fourmeme" ? "," + creatorTaxPercent : string.Empty);
+            + (anchor != null ? "," + anchor
+                : LaunchpadCatalog.SupportsCreatorTax(dex) ? "," + creatorTaxPercent : string.Empty);
     }
 
     // Lấy dữ liệu thật từ link X rồi chạy phần tạo ảnh và metadata, không gọi launchpad.
@@ -479,6 +719,11 @@ public sealed class ManualTokenMenuService
             return fourMemeOptions.EnableRealTransactions;
         }
 
+        if (launchpad == "flap")
+        {
+            return flapOptions.EnableRealTransactions;
+        }
+
         if (launchpad == "dyorswap")
         {
             return dyorStableOptions.EnableRealTransactions;
@@ -491,4 +736,14 @@ public sealed class ManualTokenMenuService
 
     private sealed record PendingManualImage(string PostId, string Chain, string Dex, string? Anchor,
         int CreatorTaxPercent, int WorkerCount);
+
+    private sealed class ManualTokenSelection
+    {
+        public string? Chain { get; set; }
+        public string? Dex { get; set; }
+        public string? Anchor { get; set; }
+        public int? CreatorTaxPercent { get; set; }
+        public int WorkerCount { get; set; }
+        public bool? UseCustomImage { get; set; }
+    }
 }

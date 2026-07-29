@@ -5,7 +5,8 @@ public static class LaunchpadCatalog
 {
     public static readonly IReadOnlyList<LaunchpadNetwork> All =
     [
-        new("bsc", "BSC", "BNB", 0.05m, "bsc", [new("fourmeme", "Four.Meme")]),
+        new("bsc", "BSC", "BNB", 0.005m, "bsc",
+            [new("fourmeme", "Four.Meme"), new("flap", "Flap")]),
         new("stable", "Stable", "USDT0", 0.01m, "stable", [new("dyorswap", "DYOR Swap")]),
         new("robinhood", "Robinhood", "ETH", 0.005m, "robinhood",
             [new("long", "Long"), new("pons", "pons")])
@@ -33,6 +34,21 @@ public static class LaunchpadCatalog
     public static bool IsValid(string? chain, string? launchpad)
     {
         return Find(chain)?.Launchpads.Any(item => item.Code == launchpad?.ToLowerInvariant()) == true;
+    }
+
+    public static bool SupportsCreatorTax(string? launchpad)
+    {
+        return launchpad?.ToLowerInvariant() is "fourmeme" or "flap";
+    }
+
+    public static bool IsValidCreatorTax(string? launchpad, int creatorTaxPercent)
+    {
+        return launchpad?.ToLowerInvariant() switch
+        {
+            "fourmeme" => creatorTaxPercent is 0 or 1 or 3 or 5 or 10,
+            "flap" => creatorTaxPercent is 1 or 3 or 5 or 10,
+            _ => creatorTaxPercent == 0
+        };
     }
 
     public static bool IsValidRoute(string? chain, string? launchpad, string? anchor)
