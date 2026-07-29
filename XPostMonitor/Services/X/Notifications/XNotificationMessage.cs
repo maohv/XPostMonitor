@@ -47,17 +47,16 @@ public static class XNotificationMessage
         DateTimeOffset? createdAt, BotTextService textService, string language)
     {
         string profileUrl = "https://x.com/" + username;
-        text.Append("<b>").Append(WebUtility.HtmlEncode(displayName)).Append("</b> | ")
-            .Append("<a href=\"").Append(profileUrl).Append("\">@")
-            .Append(WebUtility.HtmlEncode(username)).Append("</a>\n");
+        text.Append("<b>").Append(WebUtility.HtmlEncode(displayName)).Append("</b>");
 
         if (followers.HasValue)
         {
-            text.Append(FormatFollowers(followers.Value)).Append(' ')
-                .Append(textService.Get(language, "Followers")).Append(" · ");
+            text.Append("  👥 ").Append(FormatFollowers(followers.Value));
         }
 
-        text.Append(FormatTime(createdAt, textService, language)).Append("\n\n");
+        text.Append("  ·  ").Append(FormatTime(createdAt, textService, language))
+            .Append("\n<a href=\"").Append(profileUrl).Append("\">@")
+            .Append(WebUtility.HtmlEncode(username)).Append("</a>\n\n");
     }
 
     private static void AppendActivity(StringBuilder text, string? type, string? originalUsername,
@@ -65,20 +64,36 @@ public static class XNotificationMessage
     {
         if (type == "replied_to")
         {
-            text.Append("<b>").Append(textService.Get(language, "ReplyingTo",
+            text.Append("<b>↩️ ").Append(textService.Get(language, "ReplyingTo",
                     WebUtility.HtmlEncode(originalUsername ?? textService.Get(language, "Unknown"))))
                 .Append("</b>\n\n");
             return;
         }
 
-        string title = type switch
+        if (type == "retweeted")
         {
-            "retweeted" => textService.Get(language, "Reposted"),
-            "quoted" => textService.Get(language, "QuotedPost"),
-            _ => textService.Get(language, "NewPost")
+            text.Append("<b>🔁 ").Append(textService.Get(language, "Reposted")).Append("</b>");
+            if (!string.IsNullOrWhiteSpace(originalUsername))
+            {
+                text.Append(" <a href=\"https://x.com/")
+                    .Append(WebUtility.HtmlEncode(originalUsername)).Append("\">@")
+                    .Append(WebUtility.HtmlEncode(originalUsername)).Append("</a>");
+            }
+
+            text.Append("\n\n");
+            return;
+        }
+
+        string? title = type switch
+        {
+            "quoted" => "💬 " + textService.Get(language, "QuotedPost"),
+            _ => null
         };
 
-        text.Append("<b>").Append(title).Append("</b>\n\n");
+        if (title != null)
+        {
+            text.Append("<b>").Append(title).Append("</b>\n\n");
+        }
     }
 
     private static void AppendOriginalPost(StringBuilder text, XPost originalPost, XUser? originalAuthor,
@@ -86,10 +101,20 @@ public static class XNotificationMessage
     {
         string username = originalAuthor?.Username ?? textService.Get(language, "Unknown");
         string displayName = originalAuthor?.Name ?? username;
+        string profileUrl = "https://x.com/" + username;
 
         text.Append("\n\n<blockquote><b>")
-            .Append(WebUtility.HtmlEncode(displayName)).Append(" | @")
-            .Append(WebUtility.HtmlEncode(username)).Append("</b>\n")
+            .Append(WebUtility.HtmlEncode(displayName)).Append("</b>  ")
+            .Append("<a href=\"").Append(profileUrl).Append("\">@")
+            .Append(WebUtility.HtmlEncode(username)).Append("</a>");
+
+        if (originalAuthor?.PublicMetrics?.FollowersCount is long followers)
+        {
+            text.Append("  👥 ").Append(FormatFollowers(followers));
+        }
+
+        text.Append("  ·  ").Append(FormatTime(originalPost.CreatedAt, textService, language))
+            .Append("\n")
             .Append(WebUtility.HtmlEncode(Trim(originalPost.Text, 300)))
             .Append("</blockquote>");
     }

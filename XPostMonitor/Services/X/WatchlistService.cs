@@ -224,6 +224,38 @@ public sealed class WatchlistService
         return text.Get(language, "WatchTitle", string.Join("\n\n", lines));
     }
 
+    // Lấy username để tạo các nút chỉnh sửa trong màn hình /list.
+    public async Task<List<string>> GetUsernamesAsync(long chatId, CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.WatchlistEntries
+            .Where(item => item.ChatId == chatId)
+            .Include(item => item.XAccount)
+            .OrderBy(item => item.XAccount.Username)
+            .Select(item => item.XAccount.Username)
+            .ToListAsync(cancellationToken);
+    }
+
+    // Đọc cấu hình hiện tại để menu sửa hiển thị sẵn các lựa chọn đã lưu.
+    public async Task<WatchlistEditSettings?> GetEditSettingsAsync(long chatId, string username,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        string normalizedUsername = username.ToLowerInvariant();
+        WatchlistEntry? entry = await db.WatchlistEntries
+            .Include(item => item.XAccount)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.ChatId == chatId
+                && item.XAccount.Username.ToLower() == normalizedUsername, cancellationToken);
+        return entry == null
+            ? null
+            : new WatchlistEditSettings(entry.XAccount.Username, entry.TokenChain, entry.TokenDex,
+                entry.TokenAnchor, entry.CreatorTaxPercent, entry.EnableAutoTrading,
+                entry.ParallelTokenCount);
+    }
+
     // Username X chỉ được chứa chữ, số, dấu gạch dưới và dài tối đa 15 ký tự.
     private static bool IsValidXUsername(string? username)
     {
@@ -254,3 +286,6 @@ public sealed class WatchlistService
             : string.Empty;
     }
 }
+
+public sealed record WatchlistEditSettings(string Username, string? Chain, string? Dex, string? Anchor,
+    int CreatorTaxPercent, bool EnableAutoTrading, int WorkerCount);

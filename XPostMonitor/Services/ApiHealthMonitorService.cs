@@ -4,10 +4,12 @@ using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Services.Flux;
+using XPostMonitor.Services.Gemini;
 using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
 using XPostMonitor.Services.Launchpads.Flap;
+using XPostMonitor.Services.Launchpads.FlapRobinhood;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Launchpads.PonsRobinhood;
 using XPostMonitor.Services.OpenAi;
@@ -25,14 +27,17 @@ public sealed class ApiHealthMonitorService : BackgroundService
     private readonly TelegramApiClient telegramApi;
     private readonly OpenAiClient openAiClient;
     private readonly FluxClient fluxClient;
+    private readonly GeminiImageClient geminiImageClient;
     private readonly GmgnClient gmgnClient;
     private readonly AutoTradingSettingsService tradingSettings;
     private readonly FourMemeClient fourMemeClient;
     private readonly FlapClient flapClient;
+    private readonly FlapRobinhoodClient flapRobinhoodClient;
     private readonly DyorStableClient dyorStableClient;
     private readonly LongRobinhoodClient longRobinhoodClient;
     private readonly PonsRobinhoodClient ponsRobinhoodClient;
     private readonly GmgnOptions gmgnOptions;
+    private readonly ImageGenerationOptions imageGenerationOptions;
     private readonly DyorStableOptions dyorOptions;
     private readonly LongRobinhoodOptions longOptions;
     private readonly PonsRobinhoodOptions ponsOptions;
@@ -40,10 +45,13 @@ public sealed class ApiHealthMonitorService : BackgroundService
 
     public ApiHealthMonitorService(IServiceScopeFactory scopeFactory, IHttpClientFactory httpClientFactory,
         XApiClient xApiClient, TelegramApiClient telegramApi, OpenAiClient openAiClient,
-        FluxClient fluxClient, GmgnClient gmgnClient, AutoTradingSettingsService tradingSettings,
+        FluxClient fluxClient, GeminiImageClient geminiImageClient, GmgnClient gmgnClient,
+        AutoTradingSettingsService tradingSettings,
         FourMemeClient fourMemeClient, DyorStableClient dyorStableClient,
-        LongRobinhoodClient longRobinhoodClient, PonsRobinhoodClient ponsRobinhoodClient, FlapClient flapClient,
-        GmgnOptions gmgnOptions, DyorStableOptions dyorOptions, LongRobinhoodOptions longOptions,
+        LongRobinhoodClient longRobinhoodClient, PonsRobinhoodClient ponsRobinhoodClient,
+        FlapClient flapClient, FlapRobinhoodClient flapRobinhoodClient,
+        GmgnOptions gmgnOptions, ImageGenerationOptions imageGenerationOptions, DyorStableOptions dyorOptions,
+        LongRobinhoodOptions longOptions,
         PonsRobinhoodOptions ponsOptions, ILogger<ApiHealthMonitorService> logger)
     {
         this.scopeFactory = scopeFactory;
@@ -52,14 +60,17 @@ public sealed class ApiHealthMonitorService : BackgroundService
         this.telegramApi = telegramApi;
         this.openAiClient = openAiClient;
         this.fluxClient = fluxClient;
+        this.geminiImageClient = geminiImageClient;
         this.gmgnClient = gmgnClient;
         this.tradingSettings = tradingSettings;
         this.fourMemeClient = fourMemeClient;
         this.flapClient = flapClient;
+        this.flapRobinhoodClient = flapRobinhoodClient;
         this.dyorStableClient = dyorStableClient;
         this.longRobinhoodClient = longRobinhoodClient;
         this.ponsRobinhoodClient = ponsRobinhoodClient;
         this.gmgnOptions = gmgnOptions;
+        this.imageGenerationOptions = imageGenerationOptions;
         this.dyorOptions = dyorOptions;
         this.longOptions = longOptions;
         this.ponsOptions = ponsOptions;
@@ -78,6 +89,7 @@ public sealed class ApiHealthMonitorService : BackgroundService
     private async Task CheckAllAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("[HEALTH] Checking API connections...");
+        logger.LogInformation("[HEALTH] Image provider: {Provider}", imageGenerationOptions.Provider);
         await CheckAsync("SQL Server", CheckDatabaseAsync, cancellationToken);
         await CheckAsync("X API", async token =>
         {
@@ -93,6 +105,11 @@ public sealed class ApiHealthMonitorService : BackgroundService
             cancellationToken);
         await CheckAsync("FLUX API", token => EnsureSuccessAsync(fluxClient.CheckConnectionAsync(token)),
             cancellationToken);
+        if (imageGenerationOptions.Provider.Equals("Gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            await CheckAsync("Gemini 3.1 Image",
+                token => EnsureSuccessAsync(geminiImageClient.CheckConnectionAsync(token)), cancellationToken);
+        }
         await CheckAsync("GMGN API", CheckGmgnAsync, cancellationToken);
         await CheckAsync("FourMeme API + BSC RPC", async token =>
         {
@@ -107,6 +124,15 @@ public sealed class ApiHealthMonitorService : BackgroundService
                 throw new InvalidOperationException("wrong chain or Portal contract missing");
             }
             return "tax token Portal ready";
+        }, cancellationToken);
+        await CheckAsync("Flap Portal + Robinhood RPC", async token =>
+        {
+            FlapRobinhoodConnectionResult result = await flapRobinhoodClient.CheckAsync(token);
+            if (!result.CorrectChain || !result.PortalFound)
+            {
+                throw new InvalidOperationException("wrong chain or Portal contract missing");
+            }
+            return "Tax Token V3 Portal ready";
         }, cancellationToken);
         await CheckAsync("Stable RPC + DYOR", async token =>
         {

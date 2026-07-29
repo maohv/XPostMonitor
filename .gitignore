@@ -2,6 +2,9 @@
 **/bin/
 **/obj/
 Publish/
+.build-check/
+.publish-check/
+release/
 *.user
 *.suo
 *.tmp

@@ -45,7 +45,7 @@
   "ChannelRemoved": "已从频道移除 @{0}。", "ChannelEmpty": "频道监控列表为空。",
   "ChannelList": "频道正在监控：\n- {0}",
   "PreviewExpired": "已跳过代币：元数据和图片准备超过 10 秒，不会重试。",
-  "PreviewCaption": "代币预览\n\n名称：{0}\n代码：{1}\n描述：{2}\n\n来源：{3}\nOpenAI：{4} 秒\nFLUX：{5} 秒\n总计：{6} 秒\n\n仅供预览，尚未创建代币。",
+  "PreviewCaption": "代币预览\n\n名称：{0}\n代码：{1}\n描述：{2}\n\n来源：{3}\nOpenAI：{4} 秒\n图片：{5} 秒\n总计：{6} 秒\n\n仅供预览，尚未创建代币。",
   "PostImage": "帖子图片", "PostText": "帖子文本",
   "FluxImageCaption": "FLUX 代币图片\n生成耗时 {0} 秒", "AiImageCaption": "AI 代币图片",
   "InvalidXLink": "请发送有效的 X 帖子链接，例如：https://x.com/user/status/123",
@@ -158,10 +158,14 @@
   ,"Worker": "钱包"
   ,"ParallelWallets": "并行钱包"
   ,"ChooseWorkerWallet": "选择要配置的钱包："
-  ,"ConfigureWorkerFirst": "请先配置钱包 {0}，再选择此代币数量。"
+  ,"ConfigureWorkerFirst": "请先配置钱包 {0}，再选择此钱包数量。"
   ,"ConfigureWallets": "配置钱包"
-  ,"ChooseWorkerCount": "@{0} 每条 Post 要创建多少个代币？"
-  ,"TokensPerPost": "每条 Post 的代币数"
+  ,"ChooseWorkerCount": "@{0} 每条 Post 使用多少个钱包创建代币？"
+  ,"TokensPerPost": "创建代币的钱包数"
+  ,"EditAccount": "编辑 @{0}"
+  ,"EditWatchlist": "修改下方选项，然后点击保存更改。"
+  ,"SaveChanges": "保存更改"
+  ,"EditSelectionMissing": "请选择有效的网络、Launchpad、费用、自动交易和钱包数量。"
   ,"ConfigureGmgnFirst": "请先为钱包 {0} 配置 GMGN，再开启自动交易。"
   ,"ConfigureGmgn": "配置 GMGN"
   ,"ChooseManualWorkerCount": "选择同时创建此代币的钱包数量："

@@ -4,16 +4,19 @@ using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Services;
 using XPostMonitor.Services.Flux;
+using XPostMonitor.Services.Gemini;
 using XPostMonitor.Services.Gmgn;
 using XPostMonitor.Services.Gmgn.Launchpads;
 using XPostMonitor.Services.Gmgn.Launchpads.FourMeme;
 using XPostMonitor.Services.Gmgn.Launchpads.Flap;
+using XPostMonitor.Services.Gmgn.Launchpads.FlapRobinhood;
 using XPostMonitor.Services.Gmgn.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Gmgn.Launchpads.Pons;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
 using XPostMonitor.Services.Launchpads.Flap;
+using XPostMonitor.Services.Launchpads.FlapRobinhood;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Launchpads.PonsRobinhood;
 using XPostMonitor.Services.OpenAi;
@@ -51,6 +54,14 @@ FluxOptions fluxOptions = new FluxOptions();
 builder.Configuration.GetSection(FluxOptions.SectionName).Bind(fluxOptions);
 builder.Services.AddSingleton(fluxOptions);
 
+GeminiOptions geminiOptions = new GeminiOptions();
+builder.Configuration.GetSection(GeminiOptions.SectionName).Bind(geminiOptions);
+builder.Services.AddSingleton(geminiOptions);
+
+ImageGenerationOptions imageGenerationOptions = new ImageGenerationOptions();
+builder.Configuration.GetSection(ImageGenerationOptions.SectionName).Bind(imageGenerationOptions);
+builder.Services.AddSingleton(imageGenerationOptions);
+
 FourMemeOptions fourMemeOptions = new FourMemeOptions();
 builder.Configuration.GetSection(FourMemeOptions.SectionName).Bind(fourMemeOptions);
 builder.Services.AddSingleton(fourMemeOptions);
@@ -58,6 +69,10 @@ builder.Services.AddSingleton(fourMemeOptions);
 FlapOptions flapOptions = new FlapOptions();
 builder.Configuration.GetSection(FlapOptions.SectionName).Bind(flapOptions);
 builder.Services.AddSingleton(flapOptions);
+
+FlapRobinhoodOptions flapRobinhoodOptions = new FlapRobinhoodOptions();
+builder.Configuration.GetSection(FlapRobinhoodOptions.SectionName).Bind(flapRobinhoodOptions);
+builder.Services.AddSingleton(flapRobinhoodOptions);
 
 DyorStableOptions dyorStableOptions = new DyorStableOptions();
 builder.Configuration.GetSection(DyorStableOptions.SectionName).Bind(dyorStableOptions);
@@ -119,6 +134,12 @@ builder.Services.AddHttpClient<FluxClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<GeminiImageClient>(client =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
 builder.Services.AddHttpClient<FourMemeClient>(client =>
 {
     client.BaseAddress = new Uri("https://four.meme/meme-api/v1/");
@@ -126,6 +147,12 @@ builder.Services.AddHttpClient<FourMemeClient>(client =>
 });
 
 builder.Services.AddHttpClient<FlapClient>(client =>
+{
+    client.BaseAddress = new Uri("https://funcs.flap.sh/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient<FlapRobinhoodClient>(client =>
 {
     client.BaseAddress = new Uri("https://funcs.flap.sh/");
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -163,6 +190,7 @@ builder.Services.AddSingleton<GmgnClient>();
 builder.Services.AddSingleton<AutoTradingSettingsService>();
 builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, FourMemeAutoTradingHandler>();
 builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, FlapAutoTradingHandler>();
+builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, FlapRobinhoodAutoTradingHandler>();
 builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, PonsAutoTradingHandler>();
 builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, LongRobinhoodAutoTradingHandler>();
 builder.Services.AddSingleton<AutoTradingService>();

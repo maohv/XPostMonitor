@@ -265,11 +265,16 @@ public sealed class TelegramBotService : BackgroundService
                 return;
             }
 
+            if (command.Name == "/list")
+            {
+                await watchlistMenu.ShowListAsync(message.Chat.Id, language, cancellationToken);
+                return;
+            }
+
             reply = command.Name switch
             {
                 "/remove" => await watchlistService.RemoveAsync(message.Chat.Id, command.Argument, language,
                     cancellationToken),
-                "/list" => await watchlistService.ListAsync(message.Chat.Id, language, cancellationToken),
                 _ => text.Get(language, "UnknownCommand")
             };
         }

@@ -21,6 +21,7 @@ public sealed class ManualTokenMenuService
     private readonly EvmWalletService evmWalletService;
     private readonly FourMemeOptions fourMemeOptions;
     private readonly FlapOptions flapOptions;
+    private readonly FlapRobinhoodOptions flapRobinhoodOptions;
     private readonly DyorStableOptions dyorStableOptions;
     private readonly LongRobinhoodOptions longRobinhoodOptions;
     private readonly PonsRobinhoodOptions ponsRobinhoodOptions;
@@ -34,7 +35,8 @@ public sealed class ManualTokenMenuService
     public ManualTokenMenuService(TelegramApiClient telegramApi, XApiClient xApiClient,
         TokenSettingsService tokenSettings, TokenCreationService tokenCreation,
         EvmWalletService evmWalletService, FourMemeOptions fourMemeOptions,
-        FlapOptions flapOptions, DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions,
+        FlapOptions flapOptions, FlapRobinhoodOptions flapRobinhoodOptions,
+        DyorStableOptions dyorStableOptions, LongRobinhoodOptions longRobinhoodOptions,
         PonsRobinhoodOptions ponsRobinhoodOptions, BotTextService text,
         TokenPreviewService tokenPreviewService, BotOptions botOptions, TradingWorkersOptions workerOptions)
     {
@@ -45,6 +47,7 @@ public sealed class ManualTokenMenuService
         this.evmWalletService = evmWalletService;
         this.fourMemeOptions = fourMemeOptions;
         this.flapOptions = flapOptions;
+        this.flapRobinhoodOptions = flapRobinhoodOptions;
         this.dyorStableOptions = dyorStableOptions;
         this.longRobinhoodOptions = longRobinhoodOptions;
         this.ponsRobinhoodOptions = ponsRobinhoodOptions;
@@ -488,7 +491,7 @@ public sealed class ManualTokenMenuService
         }
 
         string postUrl = "https://x.com/i/status/" + postId;
-        bool live = IsLive(dex);
+        bool live = IsLive(chain, dex);
         string confirmationKey = live ? "TokenConfirmation" : "TokenTestConfirmation";
         string message = text.Get(language, confirmationKey, postUrl, network.DisplayName,
             launchpad.DisplayName, settings.BuyAmount.ToString(CultureInfo.InvariantCulture), network.Currency);
@@ -590,7 +593,7 @@ public sealed class ManualTokenMenuService
                 return;
             }
 
-            bool live = IsLive(dex);
+            bool live = IsLive(chain, dex);
             string queuedText = live ? "ManualQueued" : "TokenTestStarted";
             string message = text.Get(language, queuedText) + "\n"
                 + text.Get(language, "ParallelWallets") + ": " + workerCount;
@@ -712,7 +715,7 @@ public sealed class ManualTokenMenuService
             : "[SOURCE_LANGUAGE=" + sourceLanguage.ToLowerInvariant() + "]\n" + postText;
     }
 
-    private bool IsLive(string launchpad)
+    private bool IsLive(string chain, string launchpad)
     {
         if (launchpad == "fourmeme")
         {
@@ -721,7 +724,9 @@ public sealed class ManualTokenMenuService
 
         if (launchpad == "flap")
         {
-            return flapOptions.EnableRealTransactions;
+            return chain == "robinhood"
+                ? flapRobinhoodOptions.EnableRealTransactions
+                : flapOptions.EnableRealTransactions;
         }
 
         if (launchpad == "dyorswap")

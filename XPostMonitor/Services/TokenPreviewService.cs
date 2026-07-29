@@ -1,21 +1,26 @@
 using System.Diagnostics;
+using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
 using XPostMonitor.Services.Flux;
+using XPostMonitor.Services.Gemini;
 using XPostMonitor.Services.OpenAi;
 
 namespace XPostMonitor.Services;
 
 public sealed class TokenPreviewService
 {
-    private static readonly TimeSpan MaxPreparationTime = TimeSpan.FromSeconds(10);
-
     private readonly OpenAiClient openAiClient;
     private readonly FluxClient fluxClient;
+    private readonly GeminiImageClient geminiImageClient;
+    private readonly ImageGenerationOptions imageGenerationOptions;
 
-    public TokenPreviewService(OpenAiClient openAiClient, FluxClient fluxClient)
+    public TokenPreviewService(OpenAiClient openAiClient, FluxClient fluxClient,
+        GeminiImageClient geminiImageClient, ImageGenerationOptions imageGenerationOptions)
     {
         this.openAiClient = openAiClient;
         this.fluxClient = fluxClient;
+        this.geminiImageClient = geminiImageClient;
+        this.imageGenerationOptions = imageGenerationOptions;
     }
 
     public async Task<TokenPreviewDto> CreateAsync(string? postText, CancellationToken cancellationToken)
@@ -41,29 +46,31 @@ public sealed class TokenPreviewService
     }
 
     public Task<TokenPreviewDto> CreateAsync(string? postText, string? imageUrl, DateTimeOffset receivedAt,
-        string? chain, bool expiresAfterTenSeconds, CancellationToken cancellationToken)
+        string? chain, bool useAutoTimeout, CancellationToken cancellationToken)
     {
-        return CreateAsync(postText, imageUrl, receivedAt, chain, null, expiresAfterTenSeconds,
+        return CreateAsync(postText, imageUrl, receivedAt, chain, null, useAutoTimeout,
             cancellationToken);
     }
 
     public async Task<TokenPreviewDto> CreateAsync(string? postText, string? imageUrl, DateTimeOffset receivedAt,
-        string? chain, string? username, bool expiresAfterTenSeconds, CancellationToken cancellationToken)
+        string? chain, string? username, bool useAutoTimeout, CancellationToken cancellationToken)
     {
+        TimeSpan autoTimeout = GetAutoTimeout();
+        bool hasDeadline = useAutoTimeout && autoTimeout > TimeSpan.Zero;
         TimeSpan age = DateTimeOffset.UtcNow - receivedAt;
         if (age < TimeSpan.Zero)
         {
             age = TimeSpan.Zero;
         }
 
-        TimeSpan remainingTime = MaxPreparationTime - age;
-        if (expiresAfterTenSeconds && remainingTime <= TimeSpan.Zero)
+        TimeSpan remainingTime = autoTimeout - age;
+        if (hasDeadline && remainingTime <= TimeSpan.Zero)
         {
-            return CreateExpiredResult(receivedAt, imageUrl);
+            return CreateExpiredResult(receivedAt, imageUrl, autoTimeout);
         }
 
         using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (expiresAfterTenSeconds)
+        if (hasDeadline)
         {
             deadline.CancelAfter(remainingTime);
         }
@@ -79,7 +86,7 @@ public sealed class TokenPreviewService
         if (string.IsNullOrWhiteSpace(imageUrl))
         {
             return await CreateFromTextAsync(metadataTask, receivedAt, imageStyle, characterImageBase64,
-                chainLogoBase64, deadline, expiresAfterTenSeconds, cancellationToken);
+                chainLogoBase64, deadline, hasDeadline, autoTimeout, cancellationToken);
         }
 
         Task<(FluxImageDto Image, double Seconds)> imageTask = CreateImageAsync(postText, imageUrl, imageStyle,
@@ -89,9 +96,9 @@ public sealed class TokenPreviewService
         {
             await Task.WhenAll(metadataTask, imageTask);
         }
-        catch (OperationCanceledException) when (expiresAfterTenSeconds && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (hasDeadline && !cancellationToken.IsCancellationRequested)
         {
-            return CreateExpiredResult(receivedAt, imageUrl);
+            return CreateExpiredResult(receivedAt, imageUrl, autoTimeout);
         }
         catch
         {
@@ -99,9 +106,9 @@ public sealed class TokenPreviewService
             throw;
         }
 
-        if (expiresAfterTenSeconds && DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
+        if (hasDeadline && DateTimeOffset.UtcNow - receivedAt >= autoTimeout)
         {
-            return CreateExpiredResult(receivedAt, imageUrl);
+            return CreateExpiredResult(receivedAt, imageUrl, autoTimeout);
         }
 
         (TokenDraftDto draft, double openAiSeconds) = await metadataTask;
@@ -134,7 +141,7 @@ public sealed class TokenPreviewService
     }
 
     public async Task<TokenPreviewDto> CreateWithOriginalImageAsync(string? postText, string? imageUrl,
-        DateTimeOffset receivedAt, string? chain, bool expiresAfterTenSeconds,
+        DateTimeOffset receivedAt, string? chain, bool useAutoTimeout,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(imageUrl))
@@ -142,14 +149,16 @@ public sealed class TokenPreviewService
             throw new InvalidOperationException("X did not return the new avatar URL.");
         }
 
-        TimeSpan remainingTime = MaxPreparationTime - (DateTimeOffset.UtcNow - receivedAt);
-        if (expiresAfterTenSeconds && remainingTime <= TimeSpan.Zero)
+        TimeSpan autoTimeout = GetAutoTimeout();
+        bool hasDeadline = useAutoTimeout && autoTimeout > TimeSpan.Zero;
+        TimeSpan remainingTime = autoTimeout - (DateTimeOffset.UtcNow - receivedAt);
+        if (hasDeadline && remainingTime <= TimeSpan.Zero)
         {
-            return CreateExpiredResult(receivedAt, imageUrl);
+            return CreateExpiredResult(receivedAt, imageUrl, autoTimeout);
         }
 
         using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (expiresAfterTenSeconds)
+        if (hasDeadline)
         {
             deadline.CancelAfter(remainingTime);
         }
@@ -172,9 +181,9 @@ public sealed class TokenPreviewService
                 UsedSourceImage = true
             };
         }
-        catch (OperationCanceledException) when (expiresAfterTenSeconds && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (hasDeadline && !cancellationToken.IsCancellationRequested)
         {
-            return CreateExpiredResult(receivedAt, imageUrl);
+            return CreateExpiredResult(receivedAt, imageUrl, autoTimeout);
         }
     }
 
@@ -206,13 +215,15 @@ public sealed class TokenPreviewService
         };
     }
 
-    private static TokenPreviewDto CreateExpiredResult(DateTimeOffset receivedAt, string? imageUrl)
+    private static TokenPreviewDto CreateExpiredResult(DateTimeOffset receivedAt, string? imageUrl,
+        TimeSpan autoTimeout)
     {
         return new TokenPreviewDto
         {
             IsExpired = true,
             UsedSourceImage = !string.IsNullOrWhiteSpace(imageUrl),
-            TotalSeconds = Math.Max(10, (DateTimeOffset.UtcNow - receivedAt).TotalSeconds)
+            TotalSeconds = Math.Max(autoTimeout.TotalSeconds,
+                (DateTimeOffset.UtcNow - receivedAt).TotalSeconds)
         };
     }
 
@@ -238,35 +249,68 @@ public sealed class TokenPreviewService
 
     private async Task<TokenPreviewDto> CreateFromTextAsync(Task<(TokenDraftDto Draft, double Seconds)> metadataTask,
         DateTimeOffset receivedAt, string? imageStyle, string? characterImageBase64, string? chainLogoBase64,
-        CancellationTokenSource deadline, bool expiresAfterTenSeconds, CancellationToken cancellationToken)
+        CancellationTokenSource deadline, bool hasDeadline, TimeSpan autoTimeout,
+        CancellationToken cancellationToken)
     {
         try
         {
             (TokenDraftDto draft, double openAiSeconds) = await metadataTask;
             Stopwatch timer = Stopwatch.StartNew();
-            FluxImageDto image = await fluxClient.CreateTokenImageFromPromptAsync(draft.ImagePrompt, imageStyle,
-                characterImageBase64, chainLogoBase64, deadline.Token);
+            byte[] imageData;
+            string imageUrl = string.Empty;
+
+            // Một lựa chọn duy nhất được dùng chung cho cả Auto Create và tạo thủ công.
+            switch (imageGenerationOptions.Provider.Trim().ToLowerInvariant())
+            {
+                case "openai":
+                    imageData = await openAiClient.CreateTokenImageAsync(draft.ImagePrompt, imageStyle,
+                        characterImageBase64, chainLogoBase64, deadline.Token);
+                    break;
+
+                case "gemini":
+                    imageData = await geminiImageClient.CreateTokenImageAsync(draft.ImagePrompt, imageStyle,
+                        characterImageBase64, chainLogoBase64, deadline.Token);
+                    break;
+
+                case "flux":
+                    FluxImageDto image = await fluxClient.CreateTokenImageFromPromptAsync(draft.ImagePrompt,
+                        imageStyle, characterImageBase64, chainLogoBase64, deadline.Token);
+                    imageData = image.Data;
+                    imageUrl = image.Url;
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        "ImageGeneration:Provider must be OpenAi, Gemini, or Flux.");
+            }
             timer.Stop();
 
-            if (expiresAfterTenSeconds && DateTimeOffset.UtcNow - receivedAt >= MaxPreparationTime)
+            if (hasDeadline && DateTimeOffset.UtcNow - receivedAt >= autoTimeout)
             {
-                return CreateExpiredResult(receivedAt, null);
+                return CreateExpiredResult(receivedAt, null, autoTimeout);
             }
 
             return new TokenPreviewDto
             {
                 Draft = draft,
-                Image = image.Data,
-                ImageUrl = image.Url,
+                Image = imageData,
+                ImageUrl = imageUrl,
                 OpenAiSeconds = openAiSeconds,
                 FluxSeconds = timer.Elapsed.TotalSeconds,
                 TotalSeconds = Math.Max(0, (DateTimeOffset.UtcNow - receivedAt).TotalSeconds)
             };
         }
-        catch (OperationCanceledException) when (expiresAfterTenSeconds && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (hasDeadline && !cancellationToken.IsCancellationRequested)
         {
-            return CreateExpiredResult(receivedAt, null);
+            return CreateExpiredResult(receivedAt, null, autoTimeout);
         }
+    }
+
+    private TimeSpan GetAutoTimeout()
+    {
+        return imageGenerationOptions.AutoCreateTimeoutSeconds <= 0
+            ? TimeSpan.Zero
+            : TimeSpan.FromSeconds(imageGenerationOptions.AutoCreateTimeoutSeconds);
     }
 
     private static string? GetChainImageStyle(string? chain)

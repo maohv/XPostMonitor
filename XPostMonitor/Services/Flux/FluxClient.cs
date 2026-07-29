@@ -8,26 +8,26 @@ namespace XPostMonitor.Services.Flux;
 
 public sealed class FluxClient
 {
-    private const string MemeTokenStyle = " Render it as a polished, playful 2D editorial-cartoon meme illustration. Use clean "
-        + "rounded line art, smooth confident dark outlines, bright aqua and turquoise foundations, warm coral and golden accents, "
-        + "soft cream highlights, gentle cel shading, and subtle paper-like texture. Build a lively layered scene with a clear "
-        + "foreground, subject, and simple scenic background; add a few small story details that reward a second look without making "
-        + "the composition cluttered. Keep the mood colorful, whimsical, premium, and instantly readable. Show one dominant "
-        + "character actively doing something, preferably as a full-body or three-quarter-body scene, with one humorous costume "
-        + "or prop and at least two concrete visual details tied directly to the selected hook. Match the character's expression "
-        + "to the Post's tone; never default to an angry face. If a real public figure is named, draw a respectful recognizable "
-        + "cartoon caricature using well-known visual traits instead of a generic businessperson. If a character would not fit "
-        + "the hook, use one dominant object in a clear action instead. "
-        + "Use rounded expressive shapes, a clean silhouette, dynamic but balanced composition, and a slightly absurd visual joke. "
-        + "Adapt the accent colors and scenery to the actual subject while keeping this consistent bright cartoon identity. Keep the "
-        + "composition readable at tiny thumbnail size. A plain headshot against an abstract city "
-        + "or gradient background is invalid because it does not tell the story. Do not create an event poster, stage, "
-        + "crowd, collage, trading dashboard, circular badge, logo, or detailed cinematic scene unless the selected hook truly "
-        + "depends on it. For fictional characters, create an original design; do not copy a known copyrighted character or franchise design. "
-        + "The image must be completely text-free. Ignore any earlier request to "
-        + "render text. Draw no letters, words, numbers, emoji glyphs, captions, labels, speech bubbles, signs, documents, pages, "
-        + "whiteboards, screens, user interfaces, writing, or pseudo-text. Express the idea only through visual subjects, actions, "
-        + "objects, expressions, colors, and composition.";
+    private const string MemeTokenStyle = " Render it as a full-body true chibi mascot in a polished playful 2D "
+        + "editorial-cartoon style. Give a person an oversized rounded head occupying approximately 45-50% of the total character "
+        + "height, a very small compact body, short rounded arms and legs, tiny shoes, slightly prominent ears, large expressive "
+        + "glossy eyes, simplified but recognizable facial features, and a cheerful friendly expression. Preserve recognizable "
+        + "facial identity and hairstyle whenever they are known. Include glasses, facial marks, or other signature face details "
+        + "only when they are clearly present in the source or reference; never invent them. "
+        + "Use a premium mascot character design, clean vector-inspired shapes, thick smooth dark-brown outlines, consistent line "
+        + "weight, rounded contours, a warm pastel color palette, flat colors, simple two-tone cel shading, minimal gradients, soft "
+        + "highlights, subtle ambient shadows, gentle paper grain texture, and a charming hand-drawn editorial finish. Keep the "
+        + "character centered and fully visible from head to toe in a square composition. Use a simple warm minimalist background "
+        + "with cream and light beige tones, softly simplified objects, and enough empty space around the character. "
+        + "Show one clear Post-specific action with one or two concrete visual details tied directly to the selected hook. Match the "
+        + "character's expression to the Post's tone; never default to anger. If a character does not fit the hook, transform the "
+        + "dominant object into an adorable polished chibi mascot while keeping the same visual finish. Keep hands natural with the "
+        + "correct number of fingers and no duplicated limbs. Keep the image cute, recognizable, crisp, and readable at thumbnail size. "
+        + "For fictional characters, create an original design; do not copy a known copyrighted character or franchise design. "
+        + "No text, watermark, photorealism, 3D rendering, realistic body proportions, complex cinematic lighting, thin sketchy "
+        + "lines, exaggerated anime style, malformed hands, extra fingers, missing fingers, or duplicated limbs. Draw no letters, "
+        + "words, numbers, emoji glyphs, captions, labels, speech bubbles, signs, documents, pages, whiteboards, screens, user "
+        + "interfaces, writing, or pseudo-text.";
 
     private readonly HttpClient httpClient;
     private readonly FluxOptions options;
@@ -249,15 +249,30 @@ public sealed class FluxClient
     private static string BuildCharacterReferencePrompt(string imagePrompt, string style,
         string logoInstruction)
     {
-        return "Image 1 defines the exact identity of the single dominant person. "
-            + "Create a recognizable polished 2D editorial-cartoon likeness of that same person, preserving facial proportions, "
-            + "eye and eyebrow shape, nose, mouth, smile, hairstyle, skin tone, and every visible mole, beauty mark, freckle, "
-            + "or distinctive facial detail in the same location. Frame the person close enough for facial details to remain visible. "
-            + "Show that same person in this Post-specific scene: " + imagePrompt + ". "
+        return "Highest priority: preserve the facial identity from Image 1. Image 1 is the exact face reference for the single "
+            + "dominant person, not a reference for the new scene. Preserve the person's face shape and proportions, eye and eyebrow "
+            + "shape, nose, mouth, smile, hairstyle, hairline, skin tone, and every visible mole, beauty mark, freckle, or signature "
+            + "facial detail in the same location. Include glasses only if they are clearly visible in Image 1; never invent glasses "
+            + "or facial marks. Do not replace this face with a generic chibi face. The body, clothing, accessories, pose, props, and "
+            + "background may change to fit the Post, but facial likeness must not be sacrificed. "
+            + "Create a full-body adorable polished true chibi mascot of that same recognizable person with "
+            + "an oversized rounded head occupying approximately 45-50% of the total character height, a very small compact body, "
+            + "short rounded arms and legs, tiny shoes, slightly prominent ears, expressive glossy eyes, simplified but recognizable "
+            + "facial features, and a friendly expression matching the Post. Slightly enlarge the eyes only if the original eye shape "
+            + "and facial identity remain recognizable. Show that same person in this Post-specific scene: "
+            + imagePrompt + ". "
             + style
             + logoInstruction
-            + " Clean rounded dark line art, bright aqua, turquoise, coral and golden palette, gentle cel shading, "
-            + "subtle paper texture, text-free composition. No URLs, token symbols, pseudo-text, or watermark.";
+            + " Use a polished playful 2D editorial-cartoon illustration, premium mascot character design, clean vector-inspired "
+            + "shapes, thick smooth dark-brown outlines, consistent line weight, rounded contours, a warm pastel color palette, flat "
+            + "colors, simple two-tone cel shading, minimal gradients, soft highlights, subtle ambient shadows, gentle paper grain "
+            + "texture, a charming hand-drawn editorial finish, and crisp clean details. Keep the character centered and fully visible "
+            + "from head to toe. Use a simple warm minimalist background inspired by the Post-specific scene, with cream "
+            + "and light beige tones, softly simplified objects, and enough empty space around the character. Maintain the reference "
+            + "facial identity accurately, including natural hand anatomy and the correct number of fingers. Square composition, cute but "
+            + "recognizable, clean professional finish. No text, URLs, token symbols, pseudo-text, watermark, photorealism, 3D "
+            + "rendering, realistic body proportions, complex cinematic lighting, thin sketchy lines, exaggerated anime style, "
+            + "malformed hands, extra fingers, missing fingers, or duplicated limbs.";
     }
 
     private static string GetLogoInstruction(string? chainLogoBase64, bool hasPostImage,

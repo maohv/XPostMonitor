@@ -43,7 +43,7 @@
   "TokenSkipped": "Đã bỏ qua token cho Post {0}: chuẩn bị quá 10 giây.",
   "TokenSubmitted": "Đã tạo token\n\nTên: {0}\nMã: {1}\nNetwork: {2}\nLaunchpad: {3}",
   "Transaction": "Giao dịch", "Followers": "người theo dõi",
-  "ReplyingTo": "Đang trả lời @{0}", "Reposted": "Đã đăng lại", "QuotedPost": "Đã trích dẫn", "NewPost": "Bài đăng mới",
+  "ReplyingTo": "Đang trả lời @{0}", "Reposted": "Chia sẻ", "QuotedPost": "Đã trích dẫn", "NewPost": "Bài đăng mới",
   "Unknown": "không xác định", "JustNow": "vừa xong", "MinutesAgo": "{0} phút trước", "HoursAgo": "{0} giờ trước",
   "DaysAgo": "{0} ngày trước", "ViewOnX": "Xem trên X",
   "AvatarChanged": "@{0} đã đổi avatar.\n\nhttps://x.com/{0}", "NewAvatar": "Avatar mới: {0}",
@@ -54,7 +54,7 @@
   "ChannelRemoved": "Đã xóa @{0} khỏi Channel.", "ChannelEmpty": "Danh sách theo dõi của Channel đang trống.",
   "ChannelList": "Channel đang theo dõi:\n- {0}",
   "PreviewExpired": "Đã bỏ qua token vì chuẩn bị metadata và ảnh quá 10 giây. Bot sẽ không thử lại.",
-  "PreviewCaption": "Xem trước token\n\nTên: {0}\nMã: {1}\nMô tả: {2}\n\nNguồn: {3}\nOpenAI: {4} giây\nFLUX: {5} giây\nTổng: {6} giây\n\nChỉ xem trước, chưa tạo token.",
+  "PreviewCaption": "Xem trước token\n\nTên: {0}\nMã: {1}\nMô tả: {2}\n\nNguồn: {3}\nOpenAI: {4} giây\nẢnh: {5} giây\nTổng: {6} giây\n\nChỉ xem trước, chưa tạo token.",
   "PostImage": "ảnh bài đăng", "PostText": "nội dung bài đăng",
   "FluxImageCaption": "Ảnh token FLUX\nTạo trong {0} giây", "AiImageCaption": "Ảnh token AI",
   "InvalidXLink": "Hãy gửi link bài đăng X hợp lệ, ví dụ: https://x.com/user/status/123",
@@ -167,10 +167,14 @@
   ,"Worker": "Ví"
   ,"ParallelWallets": "Ví tạo song song"
   ,"ChooseWorkerWallet": "Chọn ví cần cấu hình:"
-  ,"ConfigureWorkerFirst": "Hãy cấu hình Ví {0} trước khi chọn số token này."
+  ,"ConfigureWorkerFirst": "Hãy cấu hình Ví {0} trước khi chọn số ví này."
   ,"ConfigureWallets": "Cấu hình ví"
-  ,"ChooseWorkerCount": "Mỗi Post của @{0} sẽ tạo bao nhiêu token?"
-  ,"TokensPerPost": "Số token mỗi Post"
+  ,"ChooseWorkerCount": "Mỗi Post của @{0} sẽ dùng bao nhiêu ví để tạo token?"
+  ,"TokensPerPost": "Số ví tạo token"
+  ,"EditAccount": "Sửa @{0}"
+  ,"EditWatchlist": "Chọn lại các mục bên dưới, sau đó bấm Lưu thay đổi."
+  ,"SaveChanges": "Lưu thay đổi"
+  ,"EditSelectionMissing": "Hãy chọn đầy đủ Network, launchpad, phí, Auto Trading và số ví."
   ,"ConfigureGmgnFirst": "Hãy cấu hình GMGN cho Ví {0} trước khi bật Auto Trading."
   ,"ConfigureGmgn": "Cấu hình GMGN"
   ,"ChooseManualWorkerCount": "Chọn số ví sẽ cùng tạo token này:"

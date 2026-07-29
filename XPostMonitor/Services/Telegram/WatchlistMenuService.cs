@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using XPostMonitor.Dtos;
 using XPostMonitor.Configuration;
 using XPostMonitor.Services.Launchpads;
@@ -17,6 +18,8 @@ public sealed class WatchlistMenuService
     private readonly AutoTradingSettingsService autoTradingSettings;
     private readonly BotTextService text;
     private readonly TradingWorkersOptions workerOptions;
+    private readonly ConcurrentDictionary<(long ChatId, string Username), WatchlistEditSelection>
+        editSelections = new();
 
     public WatchlistMenuService(TelegramApiClient telegramApi, WatchlistService watchlistService,
         EvmWalletService evmWalletService, AutoTradingSettingsService autoTradingSettings, BotTextService text,
@@ -53,6 +56,20 @@ public sealed class WatchlistMenuService
             text.Get(language, "ChooseDestination", username), buttons, cancellationToken);
     }
 
+    // Hiển thị danh sách theo dõi kèm nút sửa cho từng tài khoản.
+    public async Task ShowListAsync(long chatId, string language, CancellationToken cancellationToken)
+    {
+        string message = await watchlistService.ListAsync(chatId, language, cancellationToken);
+        List<string> usernames = await watchlistService.GetUsernamesAsync(chatId, cancellationToken);
+        List<IReadOnlyList<TelegramInlineButton>> buttons = usernames
+            .Select(username => (IReadOnlyList<TelegramInlineButton>)
+                [new TelegramInlineButton(text.Get(language, "EditAccount", username),
+                    "watch:edit:" + username + ":open")])
+            .ToList();
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Close"), "watch:cancel")]);
+        await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
+    }
+
     // Xử lý từng nút của quy trình /add mà không cần lưu trạng thái tạm vào database.
     public async Task HandleCallbackAsync(long chatId, long messageId, string data, string language,
         CancellationToken cancellationToken)
@@ -63,12 +80,24 @@ public sealed class WatchlistMenuService
             return;
         }
 
-        await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+        if (parts.Length == 4 && parts[1] == "panel")
+        {
+            await HandleEditPanelAsync(chatId, messageId, parts[2], parts[3], language, cancellationToken);
+            return;
+        }
 
         if (parts[1] == "cancel")
         {
+            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+            foreach ((long ChatId, string Username) key in editSelections.Keys
+                         .Where(key => key.ChatId == chatId))
+            {
+                editSelections.TryRemove(key, out _);
+            }
             return;
         }
+
+        await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
 
         if (parts.Length != 4)
         {
@@ -78,6 +107,12 @@ public sealed class WatchlistMenuService
 
         string username = parts[2];
         string chain = parts[3];
+
+        if (parts[1] == "edit")
+        {
+            await StartEditAsync(chatId, username, language, cancellationToken);
+            return;
+        }
 
         if (parts[1] == "chain")
         {
@@ -208,6 +243,264 @@ public sealed class WatchlistMenuService
         }
     }
 
+    private async Task StartEditAsync(long chatId, string username, string language,
+        CancellationToken cancellationToken)
+    {
+        WatchlistEditSettings? current = await watchlistService.GetEditSettingsAsync(chatId, username,
+            cancellationToken);
+        if (current == null)
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "NotMonitoring", username),
+                cancellationToken);
+            return;
+        }
+
+        WatchlistEditSelection selection = new WatchlistEditSelection
+        {
+            Chain = current.Chain,
+            Dex = current.Dex,
+            Anchor = current.Anchor,
+            CreatorTaxPercent = current.CreatorTaxPercent,
+            EnableAutoTrading = current.EnableAutoTrading,
+            WorkerCount = Math.Clamp(current.WorkerCount, 1, workerOptions.MaxWorkers)
+        };
+        editSelections[(chatId, current.Username.ToLowerInvariant())] = selection;
+        await ShowEditPanelAsync(chatId, current.Username, selection, language, cancellationToken);
+    }
+
+    private async Task HandleEditPanelAsync(long chatId, long messageId, string username, string action,
+        string language, CancellationToken cancellationToken)
+    {
+        string keyUsername = username.ToLowerInvariant();
+        if (!editSelections.TryGetValue((chatId, keyUsername), out WatchlistEditSelection? selection))
+        {
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "SelectionExpired"),
+                cancellationToken);
+            return;
+        }
+
+        if (action == "save")
+        {
+            if (!IsValidEditSelection(selection))
+            {
+                await ShowEditPanelAsync(chatId, username, selection, language, cancellationToken,
+                    text.Get(language, "EditSelectionMissing"), messageId);
+                return;
+            }
+
+            if (selection.Chain != null)
+            {
+                IReadOnlyList<TradingWorkerWallet> wallets = await evmWalletService
+                    .GetReadyWorkersAsync(chatId, selection.WorkerCount, cancellationToken);
+                if (wallets.Count != selection.WorkerCount)
+                {
+                    int missingSlot = Enumerable.Range(1, selection.WorkerCount)
+                        .First(slot => wallets.All(wallet => wallet.SlotNumber != slot));
+                    await ShowEditPanelAsync(chatId, username, selection, language, cancellationToken,
+                        text.Get(language, "ConfigureWorkerFirst", missingSlot), messageId);
+                    return;
+                }
+
+                if (selection.EnableAutoTrading)
+                {
+                    IReadOnlyList<GmgnWorkerState> gmgnStates = await autoTradingSettings
+                        .GetWorkerStatesAsync(chatId, cancellationToken);
+                    int? missingSlot = Enumerable.Range(1, selection.WorkerCount)
+                        .FirstOrDefault(slot => !gmgnStates.Any(state =>
+                            state.SlotNumber == slot && state.HasCredentials));
+                    if (missingSlot > 0)
+                    {
+                        await ShowEditPanelAsync(chatId, username, selection, language, cancellationToken,
+                            text.Get(language, "ConfigureGmgnFirst", missingSlot), messageId);
+                        return;
+                    }
+                }
+            }
+
+            string reply = await watchlistService.AddAsync(chatId, username, selection.Chain, selection.Dex,
+                selection.Anchor, selection.CreatorTaxPercent ?? 0, selection.EnableAutoTrading,
+                selection.WorkerCount, language, cancellationToken);
+            editSelections.TryRemove((chatId, keyUsername), out _);
+            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+            await telegramApi.SendMessageAsync(chatId, reply, cancellationToken);
+            return;
+        }
+
+        string[] value = action.Split('=', 2);
+        if (value.Length != 2)
+        {
+            return;
+        }
+
+        if (value[0] == "c")
+        {
+            if (value[1] == "alerts")
+            {
+                selection.Chain = null;
+                selection.Dex = null;
+                selection.Anchor = null;
+                selection.CreatorTaxPercent = 0;
+                selection.EnableAutoTrading = false;
+                selection.WorkerCount = 1;
+            }
+            else if (LaunchpadCatalog.Find(value[1]) is LaunchpadNetwork network)
+            {
+                selection.Chain = network.Chain;
+                selection.Dex = null;
+                selection.Anchor = null;
+                selection.CreatorTaxPercent = null;
+                selection.EnableAutoTrading = false;
+            }
+        }
+        else if (value[0] == "d" && selection.Chain != null
+            && LaunchpadCatalog.IsValid(selection.Chain, value[1]))
+        {
+            selection.Dex = value[1];
+            selection.Anchor = null;
+            selection.CreatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(value[1]) ? null : 0;
+        }
+        else if (value[0] == "t" && int.TryParse(value[1], out int tax)
+            && LaunchpadCatalog.IsValidCreatorTax(selection.Dex, tax))
+        {
+            selection.CreatorTaxPercent = tax;
+        }
+        else if (value[0] == "a" && selection.Dex == "long"
+            && LaunchpadCatalog.FindLongAnchor(value[1]) != null)
+        {
+            selection.Anchor = value[1];
+        }
+        else if (value[0] == "g" && value[1] is "0" or "1" && selection.Chain != "stable")
+        {
+            selection.EnableAutoTrading = value[1] == "1";
+        }
+        else if (value[0] == "w" && int.TryParse(value[1], out int workerCount)
+            && workerCount >= 1 && workerCount <= workerOptions.MaxWorkers)
+        {
+            selection.WorkerCount = workerCount;
+        }
+
+        await ShowEditPanelAsync(chatId, username, selection, language, cancellationToken,
+            messageId: messageId);
+    }
+
+    private async Task ShowEditPanelAsync(long chatId, string username, WatchlistEditSelection selection,
+        string language, CancellationToken cancellationToken, string? notice = null, long? messageId = null)
+    {
+        LaunchpadNetwork? network = LaunchpadCatalog.Find(selection.Chain);
+        LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == selection.Dex);
+        string message = (notice == null ? text.Get(language, "EditWatchlist") : notice) + "\n\n"
+            + text.Get(language, "Account") + ": @" + username + "\n"
+            + text.Get(language, "Network") + ": "
+            + (selection.Chain == null ? text.Get(language, "AlertsOnly")
+                : network?.DisplayName ?? text.Get(language, "NotSet")) + "\n"
+            + text.Get(language, "Launchpad") + ": "
+            + (selection.Chain == null ? "-" : launchpad?.DisplayName ?? text.Get(language, "NotSet")) + "\n";
+        if (LaunchpadCatalog.SupportsCreatorTax(selection.Dex))
+        {
+            message += text.Get(language, "CreatorTax") + ": "
+                + (selection.CreatorTaxPercent.HasValue
+                    ? selection.CreatorTaxPercent + "%" : text.Get(language, "NotSet")) + "\n";
+        }
+        if (selection.Dex == "long")
+        {
+            message += text.Get(language, "StockAnchor") + ": "
+                + (selection.Anchor ?? text.Get(language, "NotSet")) + "\n";
+        }
+        if (selection.Chain != null)
+        {
+            message += text.Get(language, "AutoTrading") + ": "
+                + text.Get(language, selection.EnableAutoTrading ? "Enabled" : "Disabled") + "\n"
+                + text.Get(language, "TokensPerPost") + ": " + selection.WorkerCount;
+        }
+
+        List<IReadOnlyList<TelegramInlineButton>> buttons =
+        [
+            [
+                new TelegramInlineButton(Mark(selection.Chain == null, text.Get(language, "AlertsOnly")),
+                    "watch:panel:" + username + ":c=alerts"),
+                .. LaunchpadCatalog.All.Select(item => new TelegramInlineButton(
+                    Mark(item.Chain == selection.Chain, item.DisplayName),
+                    "watch:panel:" + username + ":c=" + item.Chain))
+            ]
+        ];
+
+        if (network != null)
+        {
+            buttons.Add(network.Launchpads.Select(item => new TelegramInlineButton(
+                Mark(item.Code == selection.Dex, item.DisplayName),
+                "watch:panel:" + username + ":d=" + item.Code)).ToList());
+        }
+        if (LaunchpadCatalog.SupportsCreatorTax(selection.Dex))
+        {
+            int[] rates = selection.Dex == "flap" ? [1, 3, 5, 10] : [0, 1, 3, 5, 10];
+            buttons.Add(rates.Select(rate => new TelegramInlineButton(
+                Mark(rate == selection.CreatorTaxPercent, rate + "%"),
+                "watch:panel:" + username + ":t=" + rate)).ToList());
+        }
+        if (selection.Dex == "long")
+        {
+            foreach (LaunchpadAnchor[] anchors in LaunchpadCatalog.LongAnchors.Chunk(2))
+            {
+                buttons.Add(anchors.Select(anchor => new TelegramInlineButton(
+                    Mark(anchor.Code == selection.Anchor, anchor.Code),
+                    "watch:panel:" + username + ":a=" + anchor.Code)).ToList());
+            }
+        }
+        if (selection.Chain != null)
+        {
+            if (selection.Chain != "stable")
+            {
+                buttons.Add(
+                [
+                    new TelegramInlineButton(Mark(selection.EnableAutoTrading,
+                        text.Get(language, "EnableAutoTrading")), "watch:panel:" + username + ":g=1"),
+                    new TelegramInlineButton(Mark(!selection.EnableAutoTrading,
+                        text.Get(language, "DisableAutoTrading")), "watch:panel:" + username + ":g=0")
+                ]);
+            }
+            else
+            {
+                buttons.Add([new TelegramInlineButton("✅ " + text.Get(language, "DisableAutoTrading"),
+                    "watch:panel:" + username + ":g=0")]);
+            }
+            buttons.Add(Enumerable.Range(1, workerOptions.MaxWorkers)
+                .Select(count => new TelegramInlineButton(
+                    Mark(count == selection.WorkerCount, text.Get(language, "Worker") + " x" + count),
+                    "watch:panel:" + username + ":w=" + count)).ToList());
+        }
+        buttons.Add(
+        [
+            new TelegramInlineButton(text.Get(language, "SaveChanges"),
+                "watch:panel:" + username + ":save"),
+            new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")
+        ]);
+
+        if (messageId.HasValue)
+        {
+            await telegramApi.EditButtonsAsync(chatId, messageId.Value, message, buttons, cancellationToken);
+            return;
+        }
+        await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
+    }
+
+    private static bool IsValidEditSelection(WatchlistEditSelection selection)
+    {
+        if (selection.Chain == null)
+        {
+            return true;
+        }
+        return selection.Dex != null
+            && LaunchpadCatalog.IsValidRoute(selection.Chain, selection.Dex, selection.Anchor)
+            && selection.CreatorTaxPercent.HasValue
+            && LaunchpadCatalog.IsValidCreatorTax(selection.Dex, selection.CreatorTaxPercent.Value)
+            && selection.WorkerCount > 0;
+    }
+
+    private static string Mark(bool selected, string label)
+    {
+        return selected ? "✅ " + label : label;
+    }
+
     private async Task ShowLaunchpadsAsync(long chatId, string username, string chain, string language,
         CancellationToken cancellationToken)
     {
@@ -335,5 +628,15 @@ public sealed class WatchlistMenuService
         ];
         await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseAutoTrading", username),
             buttons, cancellationToken);
+    }
+
+    private sealed class WatchlistEditSelection
+    {
+        public string? Chain { get; set; }
+        public string? Dex { get; set; }
+        public string? Anchor { get; set; }
+        public int? CreatorTaxPercent { get; set; }
+        public bool EnableAutoTrading { get; set; }
+        public int WorkerCount { get; set; } = 1;
     }
 }

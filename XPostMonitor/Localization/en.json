@@ -96,7 +96,7 @@
   "ChannelRemoved": "Removed @{0} from the channel.", "ChannelEmpty": "The channel watchlist is empty.",
   "ChannelList": "Channel monitoring:\n- {0}",
   "PreviewExpired": "Token skipped. Metadata and image preparation reached 10 seconds. It will not be retried.",
-  "PreviewCaption": "Token preview\n\nName: {0}\nSymbol: {1}\nDescription: {2}\n\nSource: {3}\nOpenAI: {4} seconds\nFLUX: {5} seconds\nTotal: {6} seconds\n\nPreview only. No token was created.",
+  "PreviewCaption": "Token preview\n\nName: {0}\nSymbol: {1}\nDescription: {2}\n\nSource: {3}\nOpenAI: {4} seconds\nImage: {5} seconds\nTotal: {6} seconds\n\nPreview only. No token was created.",
   "PostImage": "post image", "PostText": "post text",
   "FluxImageCaption": "FLUX token image\nGenerated in {0} seconds", "AiImageCaption": "AI token image",
   "InvalidXLink": "Send a valid X Post link, for example: https://x.com/user/status/123",
@@ -209,10 +209,14 @@
   ,"Worker": "Worker"
   ,"ParallelWallets": "Parallel wallets"
   ,"ChooseWorkerWallet": "Choose a worker wallet to configure:"
-  ,"ConfigureWorkerFirst": "Configure Wallet {0} before using this number of parallel tokens."
+  ,"ConfigureWorkerFirst": "Configure Wallet {0} before choosing this number of wallets."
   ,"ConfigureWallets": "Configure wallets"
-  ,"ChooseWorkerCount": "How many tokens should be created for each Post from @{0}?"
-  ,"TokensPerPost": "Tokens per Post"
+  ,"ChooseWorkerCount": "How many wallets should create tokens for each Post from @{0}?"
+  ,"TokensPerPost": "Wallets used"
+  ,"EditAccount": "Edit @{0}"
+  ,"EditWatchlist": "Change the options below, then press Save changes."
+  ,"SaveChanges": "Save changes"
+  ,"EditSelectionMissing": "Choose a valid network, launchpad, fee, Auto Trading option and wallet count."
   ,"ConfigureGmgnFirst": "Configure GMGN for Worker {0} before enabling Auto Trading for these tokens."
   ,"ConfigureGmgn": "Configure GMGN"
   ,"ChooseManualWorkerCount": "How many wallets should create this token?"

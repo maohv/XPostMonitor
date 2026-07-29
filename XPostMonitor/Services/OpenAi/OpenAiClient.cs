@@ -133,8 +133,9 @@ public sealed class OpenAiClient
                 + "Before naming, silently list the plausible hooks and compare them. Select the winner by: (1) what readers will "
                 + "remember or repeat, (2) a short direct line written by the current author, (3) novelty or surprise, (4) concrete "
                 + "people, places, objects, actions, or exact numbers, and (5) faithfulness to the complete story. Typography such as "
-                + "quotation marks, parentheses, hashtags, capitalization, and repetition is evidence of emphasis, but never wins "
-                + "automatically. Treat an emoji used between meaningful words as relationship punctuation: do not translate or "
+                + "quotation marks, parentheses, hashtags, capitalization, and repetition is evidence of emphasis. The mandatory "
+                + "quote-hook rule below overrides this normal ranking. Treat an emoji used between meaningful words as relationship "
+                + "punctuation: do not translate or "
                 + "spell out that emoji in the token name. Name an emoji only when the emoji itself is the Post's central joke or subject. "
                 + "A generic event label or explanatory phrase must lose to a more memorable direct line or concrete "
                 + "story. Reject editorial summaries such as Fireside Chat, Future of Finance, Event Announcement, Discussion, "
@@ -158,9 +159,13 @@ public sealed class OpenAiClient
                 + "hook and do not infer a different hook from missing conversation context. For [POST_TYPE=quote], first judge "
                 + "[QUOTE_POST] by itself. If the current author's words contain a meaningful idea, statement, joke, comparison, "
                 + "or memorable phrase—not merely a generic reaction such as yes, lol, wow, or emoji only—then those words are the "
-                + "mandatory naming hook. Use [ORIGINAL_POST] only to understand and explain the context; never replace that hook "
+                + "mandatory naming hook. Inside [QUOTE_POST], a meaningful phrase that is repeated, capitalized, placed in quotation "
+                + "marks, or explicitly called a slogan, keyword, phrase, or word of the month must win absolutely. Return that exact "
+                + "phrase in selected_hook, set hook_source to quote_post, and set lock_hook to true when it contains 2-15 letters or "
+                + "digits after spaces and punctuation are removed. Never shorten, summarize, translate, or replace a locked hook. "
+                + "Use [ORIGINAL_POST] only to understand and explain the context; never replace that hook "
                 + "with a detailed phrase from [ORIGINAL_POST]. Only use the original Post as the naming hook when [QUOTE_POST] is "
-                + "empty, link-only, or a generic reaction without its own story. Prefer an exact hook that fits 20 characters. "
+                + "empty, link-only, or a generic reaction without its own story. Prefer an exact hook that fits 15 characters. "
                 + "If input starts with [SOURCE_LANGUAGE=xx], use that language when creating a new combined name, but preserve any "
                 + "strong exact hook from either Post in its original language and script. "
                 + "Ignore languages found only inside an attached image when choosing name and symbol. For a standalone Post, use "
@@ -171,9 +176,14 @@ public sealed class OpenAiClient
                 + "2-8 character familiar phrase or idiom with emotional or cultural meaning, not a formal invented noun compound. "
                 + "Avoid generic summaries such as Global Kindness. For example, a Chinese post where charity and support letters "
                 + "positively affect a judgment should become \u5584\u6709\u5584\u62A5 / \u5584\u6709\u5584\u62A5. "
-                + "Symbol must come directly from name. For a name with multiple words, use their initials: Human Games Corp becomes "
-                + "HGC and Best Entry Point becomes BEP. For a name without spaces, use the full name. Uppercase where the language "
-                + "supports uppercase and keep the original script. Symbol must fit 2-20 characters. Never use pinyin, translation, "
+                + "Always return selected_hook as the exact winning phrase and hook_source as standalone, reply, quote_post, or "
+                + "original_post. Set lock_hook to false unless the mandatory quote-hook rule applies. "
+                + "Choose symbol as a short, meaningful, memorable phrase from the actual Post or conversation, never as mechanical "
+                + "initials of the token name. If the author explicitly supplies a token symbol or ticker, use it unchanged after removing "
+                + "a leading dollar sign. When lock_hook is true, name must equal selected_hook and symbol must contain that complete "
+                + "hook joined without spaces. Otherwise choose the shortest exact phrase that still carries the selected hook and join its "
+                + "words without spaces: Believe Me becomes BELIEVEME, not BM. Uppercase where the language supports uppercase and keep "
+                + "the original script. Symbol must fit 2-15 characters. Never cut a word merely to fit, and never use pinyin, translation, "
                 + "unrelated letters, AI, COIN, "
                 + "or TOKEN. Write an English description under 160 characters that explains the exact selected hook. Do not mention "
                 + "a weaker background topic or event label unless it is essential to understanding that hook. "
@@ -185,7 +195,7 @@ public sealed class OpenAiClient
                 + "metaphor; an object or product makes that object the dominant subject; a cause-and-result story shows both sides "
                 + "in one readable action. Never fall back to a generic portrait, conference speaker, city skyline, trader, or crypto "
                 + "scene merely because the Post mentions a famous person, event, finance, or crypto. "
-                + "Prefer one dominant character in a full-body or three-quarter-body scene, with one humorous costume or prop and a "
+                + "Prefer one dominant character as a centered full-body true chibi mascot, with one humorous costume or prop and a "
                 + "simple relevant setting. Match the expression to the Post's tone and never default to anger. If a real public "
                 + "figure is named, request a respectful recognizable cartoon caricature using well-known visual traits; never replace "
                 + "that person with a generic businessperson. "
@@ -193,12 +203,11 @@ public sealed class OpenAiClient
                 + "quotes, token names, or symbols because the image model may draw them as text. Convert every name into visual traits "
                 + "and contextual objects instead. Describe a person through recognizable appearance, a place through architecture, "
                 + "transport, landscape, colors, or cultural objects, and an event through physical action rather than signage. If a "
-                + "character would not fit, use one dominant object in a clear action instead. Ask for a polished playful 2D "
-                + "editorial-cartoon meme illustration with clean rounded line art, smooth dark outlines, bright aqua and turquoise "
-                + "foundations, warm coral and golden accents, soft cream highlights, gentle cel shading, and subtle paper texture. "
-                + "Use a lively layered composition with a clear foreground, main subject, simple scenic background, and a few small "
-                + "story details without clutter. Adapt the accent colors and scenery to the actual subject while keeping this "
-                + "consistent bright, whimsical, premium cartoon identity. Include a slightly absurd visual joke. Do not copy a known "
+                + "character would not fit, turn one dominant object into an adorable chibi mascot in a clear action instead. Ask for "
+                + "a polished playful 2D editorial-cartoon illustration with premium mascot design, clean vector-inspired shapes, thick "
+                + "smooth dark-brown outlines, rounded contours, warm pastel colors, flat colors, simple two-tone cel shading, minimal "
+                + "gradients, soft highlights, subtle shadows, and gentle paper grain texture. Use a simple warm minimalist cream and "
+                + "light beige background with enough empty space around the full character. Include a slightly absurd visual joke. Do not copy a known "
                 + "copyrighted fictional character or franchise design. A plain portrait against an abstract city or gradient "
                 + "background is invalid because it does not communicate the hook. Do not create a generic event poster, stage, crowd, collage, trading "
                 + "dashboard, circular badge, logo, or detailed cinematic scene unless the selected hook truly depends on it. If the "
@@ -229,12 +238,23 @@ public sealed class OpenAiClient
                         type = "object",
                         properties = new
                         {
+                            selected_hook = new { type = "string" },
+                            hook_source = new
+                            {
+                                type = "string",
+                                @enum = new[] { "standalone", "reply", "quote_post", "original_post" }
+                            },
+                            lock_hook = new { type = "boolean" },
                             name = new { type = "string" },
                             symbol = new { type = "string" },
                             description = new { type = "string" },
                             image_prompt = new { type = "string" }
                         },
-                        required = new[] { "name", "symbol", "description", "image_prompt" },
+                        required = new[]
+                        {
+                            "selected_hook", "hook_source", "lock_hook",
+                            "name", "symbol", "description", "image_prompt"
+                        },
                         additionalProperties = false
                     }
                 }
@@ -253,7 +273,7 @@ public sealed class OpenAiClient
             throw new InvalidOperationException(ReadError(json));
         }
 
-        return ReadTokenDraft(json);
+        return ReadTokenDraft(json, postText);
     }
 
     public async Task<byte[]> CreateImageAsync(string? prompt, CancellationToken cancellationToken)
@@ -302,7 +322,120 @@ public sealed class OpenAiClient
         return Convert.FromBase64String(base64);
     }
 
-    private static TokenDraftDto ReadTokenDraft(string responseJson)
+    // Tạo ảnh token bằng OpenAI. Ảnh nhân vật và logo chain đều là tham chiếu không bắt buộc.
+    public async Task<byte[]> CreateTokenImageAsync(string imagePrompt, string? chainImageStyle,
+        string? characterImageBase64, string? chainLogoBase64, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            throw new InvalidOperationException("OpenAI API key is missing from configuration.");
+        }
+
+        bool hasCharacter = !string.IsNullOrWhiteSpace(characterImageBase64);
+        bool hasLogo = !string.IsNullOrWhiteSpace(chainLogoBase64);
+
+        string identityInstruction = hasCharacter
+            ? "Image 1 is the exact facial identity reference and has the highest priority. Preserve the same face shape, "
+                + "facial proportions, eyes, eyebrows, nose, mouth, smile, hairstyle, hairline, skin tone, and every visible mole or "
+                + "signature facial detail in the same location. Include glasses only if they are visible in Image 1. Never invent "
+                + "glasses or replace the face with a generic chibi face. Change only the body, clothing, pose, props, background, and "
+                + "illustration style. Create that same recognizable person in the requested scene. "
+            : string.Empty;
+
+        string logoInstruction = !hasLogo
+            ? string.Empty
+            : $"{(hasCharacter ? "Image 2" : "Image 1")} is only the exact launch-chain logo. "
+                + "Place it exactly once on one suitable physical object. Do not let the logo reference affect the person's face, "
+                + "body, clothing, or art style. ";
+
+        string prompt = identityInstruction
+            + logoInstruction
+            + "Create this Post-specific scene: " + imagePrompt + ". "
+            + (string.IsNullOrWhiteSpace(chainImageStyle) ? string.Empty : chainImageStyle + " ")
+            + "Create a centered full-body true chibi mascot. Use an oversized rounded head occupying 45-50% of total character "
+            + "height, a very small compact body, short rounded "
+            + "arms and legs, tiny shoes, and natural hands. Polished playful 2D editorial-cartoon illustration, premium mascot "
+            + "design, clean vector-inspired shapes, thick smooth dark-brown outlines, warm pastel colors, flat colors, simple "
+            + "two-tone cel shading, minimal gradients, soft highlights, subtle ambient shadows, and gentle paper grain texture. "
+            + "Use a simple warm cream and light-beige background with enough empty space. Square composition. No text, watermark, "
+            + "photorealism, 3D rendering, exaggerated anime style, malformed hands, extra fingers, missing fingers, or duplicated limbs.";
+
+        if (!hasCharacter && !hasLogo)
+        {
+            var requestBody = new
+            {
+                model = options.ImageModel,
+                prompt,
+                size = options.ImageSize,
+                quality = options.ImageQuality,
+                output_format = "jpeg",
+                n = 1
+            };
+
+            using HttpRequestMessage generationRequest =
+                new HttpRequestMessage(HttpMethod.Post, "v1/images/generations");
+            generationRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+            generationRequest.Content = JsonContent.Create(requestBody);
+
+            return await SendImageRequestAsync(generationRequest, cancellationToken);
+        }
+
+        using MultipartFormDataContent form = new MultipartFormDataContent();
+        form.Add(new StringContent(options.ImageModel), "model");
+        form.Add(new StringContent(prompt), "prompt");
+        form.Add(new StringContent(options.ImageSize), "size");
+        form.Add(new StringContent(options.ImageQuality), "quality");
+        form.Add(new StringContent("jpeg"), "output_format");
+        form.Add(new StringContent("1"), "n");
+
+        if (hasCharacter)
+        {
+            AddImageToForm(form, characterImageBase64!, "character-reference");
+        }
+        if (hasLogo)
+        {
+            AddImageToForm(form, chainLogoBase64!, "chain-logo");
+        }
+
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "v1/images/edits");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+        request.Content = form;
+
+        return await SendImageRequestAsync(request, cancellationToken);
+    }
+
+    private async Task<byte[]> SendImageRequestAsync(HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await httpClient.SendAsync(request, cancellationToken);
+        string json = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException("GPT Image failed: " + ReadError(json));
+        }
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        string base64 = document.RootElement.GetProperty("data")[0].GetProperty("b64_json").GetString()
+            ?? throw new JsonException("OpenAI returned empty image data.");
+
+        return Convert.FromBase64String(base64);
+    }
+
+    // Thêm một ảnh Base64 vào form gửi tới Image Edits API.
+    private static void AddImageToForm(MultipartFormDataContent form, string imageBase64, string fileName)
+    {
+        byte[] image = Convert.FromBase64String(imageBase64);
+        bool isPng = image.Length >= 8
+            && image[0] == 137 && image[1] == 80 && image[2] == 78 && image[3] == 71
+            && image[4] == 13 && image[5] == 10 && image[6] == 26 && image[7] == 10;
+
+        ByteArrayContent content = new ByteArrayContent(image);
+        content.Headers.ContentType = new MediaTypeHeaderValue(isPng ? "image/png" : "image/jpeg");
+        form.Add(content, "image[]", fileName + (isPng ? ".png" : ".jpg"));
+    }
+
+    private static TokenDraftDto ReadTokenDraft(string responseJson, string? postText)
     {
         using JsonDocument document = JsonDocument.Parse(responseJson);
         JsonElement root = document.RootElement;
@@ -333,14 +466,62 @@ public sealed class OpenAiClient
                     string text = part.GetProperty("text").GetString() ?? throw new JsonException("AI returned empty text.");
                     TokenDraftDto draft = JsonSerializer.Deserialize<TokenDraftDto>(text)
                         ?? throw new JsonException("AI returned an invalid token draft.");
-                    draft.Name = NormalizeName(draft.Name);
-                    draft.Symbol = CreateSymbolFromName(draft.Name, draft.Symbol);
+
+                    draft.SelectedHook = CleanSelectedHook(draft.SelectedHook);
+                    if (ShouldLockQuoteHook(draft, postText))
+                    {
+                        // Hook mạnh trong lời Quote được giữ nguyên, không cho AI đổi sang ý của Post gốc.
+                        draft.Name = NormalizeName(draft.SelectedHook);
+                        draft.Symbol = CreateSymbolFromName(draft.Name, draft.Name);
+                    }
+                    else
+                    {
+                        draft.LockHook = false;
+                        draft.Name = NormalizeName(draft.Name);
+                        draft.Symbol = CreateSymbolFromName(draft.Name, draft.Symbol);
+                    }
+
                     return draft;
                 }
             }
         }
 
         throw new JsonException("AI did not return a token draft.");
+    }
+
+    private static bool ShouldLockQuoteHook(TokenDraftDto draft, string? postText)
+    {
+        if (!draft.LockHook
+            || !draft.HookSource.Equals("quote_post", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(postText))
+        {
+            return false;
+        }
+
+        const string quoteMarker = "[QUOTE_POST]";
+        int markerIndex = postText.IndexOf(quoteMarker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            return false;
+        }
+
+        string quotePost = postText[(markerIndex + quoteMarker.Length)..];
+        string compactHook = new string(draft.SelectedHook.Where(char.IsLetterOrDigit).ToArray());
+
+        return compactHook.Length is >= 2 and <= 15
+            && draft.SelectedHook.Length <= 20
+            && quotePost.Contains(draft.SelectedHook, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CleanSelectedHook(string hook)
+    {
+        char[] wrappingPunctuation =
+        [
+            ' ', '"', '\'', '“', '”', '‘', '’',
+            '.', ',', '!', '?', '。', '，', '！', '？', ':', ';'
+        ];
+
+        return hook.Trim(wrappingPunctuation);
     }
 
     private static string NormalizeName(string name)
@@ -358,27 +539,30 @@ public sealed class OpenAiClient
 
     private static string CreateSymbolFromName(string name, string aiSymbol)
     {
-        string[] words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        string symbol = words.Length > 1
-            ? string.Concat(words.Select(word => word.Any(char.IsDigit)
-                ? new string(word.Where(char.IsLetterOrDigit).ToArray())
-                : new string(word.Where(char.IsLetterOrDigit).Take(1).ToArray())))
-            : new string(name.Where(char.IsLetterOrDigit).ToArray());
-        symbol = symbol.ToUpperInvariant();
-        if (symbol.Length < 2)
+        // Ưu tiên mã có ý nghĩa do AI chọn; không tự ghép chữ cái đầu của từng từ.
+        string symbol = new string(aiSymbol
+            .Trim()
+            .TrimStart('$')
+            .Where(char.IsLetterOrDigit)
+            .ToArray())
+            .ToUpperInvariant();
+
+        bool isValidAiSymbol = symbol.Length is >= 2 and <= 15
+            && symbol is not "AI" and not "COIN" and not "TOKEN";
+
+        if (isValidAiSymbol)
         {
-            symbol = new string(name.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
-        }
-        if (symbol.Length < 2)
-        {
-            symbol = new string(aiSymbol.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
-        }
-        if (symbol.Length < 2)
-        {
-            throw new JsonException("AI returned a token name that cannot be used as a symbol.");
+            return symbol;
         }
 
-        return symbol[..Math.Min(symbol.Length, 20)];
+        // Chỉ dùng tên làm phương án dự phòng nếu AI trả về mã không hợp lệ.
+        string fallback = new string(name.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+        if (fallback.Length is >= 2 and <= 15)
+        {
+            return fallback;
+        }
+
+        throw new JsonException("AI returned a token symbol that must contain 2-15 meaningful characters.");
     }
 
     private static string ReadError(string json)
