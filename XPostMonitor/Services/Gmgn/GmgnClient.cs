@@ -88,6 +88,37 @@ public sealed class GmgnClient
             : throw new JsonException("Node.js did not return an Ed25519 key pair.");
     }
 
+    // Kiểm tra private signing key có sẵn và lấy lại public key tương ứng.
+    // Bot chỉ chấp nhận Ed25519 PKCS#8 PEM vì đây là định dạng GMGN CLI sử dụng.
+    public async Task<GmgnSigningKeyPair> ImportSigningKeyAsync(string privateKey,
+        CancellationToken cancellationToken)
+    {
+        const string script = """
+            const crypto = require('node:crypto');
+            const input = process.argv[1];
+            const key = crypto.createPrivateKey(input);
+            if (key.asymmetricKeyType !== 'ed25519') throw new Error('Signing key must be Ed25519');
+            const normalizedPrivateKey = key.export({ type: 'pkcs8', format: 'pem' });
+            const publicKey = crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' });
+            const test = Buffer.from('gmgn-key-check');
+            const signature = crypto.sign(null, test, key);
+            if (!crypto.verify(null, test, publicKey, signature)) throw new Error('Key check failed');
+            process.stdout.write(JSON.stringify({ publicKey, privateKey: normalizedPrivateKey }));
+            """;
+
+        ProcessStartInfo startInfo = CreateNodeStartInfo();
+        startInfo.ArgumentList.Add("-e");
+        startInfo.ArgumentList.Add(script);
+        startInfo.ArgumentList.Add("--"); // Không để Node hiểu dòng -----BEGIN... là một command option.
+        startInfo.ArgumentList.Add(privateKey.Replace("\\n", "\n").Trim());
+        string output = await RunProcessAsync(startInfo, TimeSpan.FromSeconds(10), cancellationToken);
+        GmgnSigningKeyPair? keys = JsonSerializer.Deserialize<GmgnSigningKeyPair>(output,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        return keys is { PublicKey.Length: > 0, PrivateKey.Length: > 0 }
+            ? keys
+            : throw new JsonException("Node.js could not read the Ed25519 signing key.");
+    }
+
     // Xác nhận API key đã được ghép đúng public key. Lệnh này chỉ đọc số dư token.
     public async Task ValidateCredentialsAsync(string apiKey, string privateKey,
         CancellationToken cancellationToken)

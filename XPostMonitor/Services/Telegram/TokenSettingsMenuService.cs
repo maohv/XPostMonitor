@@ -95,7 +95,7 @@ public sealed class TokenSettingsMenuService
                 pendingInputs[chatId] = "amount:" + parts[2];
                 LaunchpadNetwork? network = LaunchpadCatalog.Find(parts[2]);
                 string amountMessage = text.Get(language, "SendAmount", network?.DisplayName, network?.Currency);
-                if (network != null)
+                if (network != null && network.Chain != "bsc")
                 {
                     amountMessage += "\n" + text.Get(language, "MinimumBuyAmountInfo",
                         network.MinimumBuyAmount, network.Currency);

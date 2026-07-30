@@ -126,9 +126,13 @@ public sealed class WatchlistMenuService
             if (values.Length >= 2)
             {
                 string? anchor = values.Length == 3 ? values[2] : null;
-                if (LaunchpadCatalog.SupportsCreatorTax(values[1]))
+                if (LaunchpadCatalog.IsFlapBsc(values[0], values[1]))
                 {
-                    await ShowCreatorTaxAsync(chatId, username, values[0], values[1], language,
+                    await ShowFlapPaymentTokensAsync(chatId, username, language, cancellationToken);
+                }
+                else if (LaunchpadCatalog.SupportsCreatorTax(values[1]))
+                {
+                    await ShowCreatorTaxAsync(chatId, username, values[0], values[1], null, language,
                         cancellationToken);
                 }
                 else
@@ -140,12 +144,26 @@ public sealed class WatchlistMenuService
             return;
         }
 
-        if (parts[1] == "tax")
+        if (parts[1] == "payment")
         {
             string[] values = chain.Split(',', 3);
-            if (values.Length == 3 && int.TryParse(values[2], out int creatorTaxPercent))
+            if (values.Length == 3 && LaunchpadCatalog.IsFlapBsc(values[0], values[1])
+                && LaunchpadCatalog.FindFlapBscPaymentToken(values[2]) != null)
             {
-                await ShowAutoTradingAsync(chatId, username, values[0], values[1], null,
+                await ShowCreatorTaxAsync(chatId, username, values[0], values[1], values[2], language,
+                    cancellationToken);
+            }
+            return;
+        }
+
+        if (parts[1] == "tax")
+        {
+            string[] values = chain.Split(',', 4);
+            int taxIndex = values.Length == 4 ? 3 : 2;
+            if (values.Length >= 3 && int.TryParse(values[taxIndex], out int creatorTaxPercent))
+            {
+                string? anchor = values.Length == 4 ? values[2] : null;
+                await ShowAutoTradingAsync(chatId, username, values[0], values[1], anchor,
                     creatorTaxPercent, language, cancellationToken);
             }
             return;
@@ -163,13 +181,13 @@ public sealed class WatchlistMenuService
 
         if (parts[1] == "trade")
         {
-            string[] values = chain.Split(',', 4);
-            if (values.Length == 4 && int.TryParse(values[3], out int autoTrading))
+            string[] values = chain.Split(',', 5);
+            if (values.Length == 5 && int.TryParse(values[3], out int creatorTaxPercent)
+                && int.TryParse(values[4], out int autoTrading))
             {
                 string? option = values[2] == "none" ? null : values[2];
-                string? anchor = values[1] == "long" ? option : null;
-                int creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(values[1])
-                    && int.TryParse(option, out int tax) ? tax : 0;
+                string? anchor = values[1] == "long" || LaunchpadCatalog.IsFlapBsc(values[0], values[1])
+                    ? option : null;
                 await ShowWorkerCountAsync(chatId, username, values[0], values[1], anchor,
                     creatorTaxPercent, autoTrading == 1, language, cancellationToken);
             }
@@ -178,9 +196,10 @@ public sealed class WatchlistMenuService
 
         if (parts[1] == "workers")
         {
-            string[] values = chain.Split(',', 5);
-            if (values.Length == 5 && int.TryParse(values[3], out int autoTrading)
-                && int.TryParse(values[4], out int workerCount) && workerCount >= 1
+            string[] values = chain.Split(',', 6);
+            if (values.Length == 6 && int.TryParse(values[3], out int creatorTaxPercent)
+                && int.TryParse(values[4], out int autoTrading)
+                && int.TryParse(values[5], out int workerCount) && workerCount >= 1
                 && workerCount <= workerOptions.MaxWorkers)
             {
                 IReadOnlyList<TradingWorkerWallet> readyWorkers = await evmWalletService
@@ -217,9 +236,8 @@ public sealed class WatchlistMenuService
                 }
 
                 string? option = values[2] == "none" ? null : values[2];
-                string? anchor = values[1] == "long" ? option : null;
-                int creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(values[1])
-                    && int.TryParse(option, out int tax) ? tax : 0;
+                string? anchor = values[1] == "long" || LaunchpadCatalog.IsFlapBsc(values[0], values[1])
+                    ? option : null;
                 await ShowConfirmationAsync(chatId, username, values[0], values[1], anchor,
                     creatorTaxPercent, autoTrading == 1, workerCount, language, cancellationToken);
             }
@@ -228,14 +246,16 @@ public sealed class WatchlistMenuService
 
         if (parts[1] == "save")
         {
-            string[] values = chain.Split(',', 5);
+            string[] values = chain.Split(',', 6);
             string? selectedChain = values[0] == "none" ? null : values[0];
             string? selectedDex = values.Length < 2 || values[1] == "none" ? null : values[1];
-            string? selectedAnchor = selectedDex == "long" && values.Length >= 3 ? values[2] : null;
-            int creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(selectedDex) && values.Length >= 3
-                && int.TryParse(values[2], out int tax) ? tax : 0;
-            bool enableAutoTrading = values.Length >= 4 && values[3] == "1";
-            int workerCount = values.Length == 5 && int.TryParse(values[4], out int selectedCount)
+            string? selectedOption = values.Length >= 3 && values[2] != "none" ? values[2] : null;
+            string? selectedAnchor = selectedDex == "long" || LaunchpadCatalog.IsFlapBsc(selectedChain, selectedDex)
+                ? selectedOption : null;
+            int creatorTaxPercent = LaunchpadCatalog.SupportsCreatorTax(selectedDex) && values.Length >= 4
+                && int.TryParse(values[3], out int tax) ? tax : 0;
+            bool enableAutoTrading = values.Length >= 5 && values[4] == "1";
+            int workerCount = values.Length == 6 && int.TryParse(values[5], out int selectedCount)
                 ? Math.Clamp(selectedCount, 1, workerOptions.MaxWorkers) : 1;
             string reply = await watchlistService.AddAsync(chatId, username, selectedChain, selectedDex,
                 selectedAnchor, creatorTaxPercent, enableAutoTrading, workerCount, language, cancellationToken);
@@ -369,6 +389,11 @@ public sealed class WatchlistMenuService
         {
             selection.Anchor = value[1];
         }
+        else if (value[0] == "p" && LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex)
+            && LaunchpadCatalog.FindFlapBscPaymentToken(value[1]) != null)
+        {
+            selection.Anchor = value[1] == "BNB" ? null : value[1];
+        }
         else if (value[0] == "g" && value[1] is "0" or "1" && selection.Chain != "stable")
         {
             selection.EnableAutoTrading = value[1] == "1";
@@ -405,6 +430,11 @@ public sealed class WatchlistMenuService
         {
             message += text.Get(language, "StockAnchor") + ": "
                 + (selection.Anchor ?? text.Get(language, "NotSet")) + "\n";
+        }
+        if (LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex))
+        {
+            message += text.Get(language, "PaymentToken") + ": "
+                + LaunchpadCatalog.FindFlapBscPaymentToken(selection.Anchor)!.Code + "\n";
         }
         if (selection.Chain != null)
         {
@@ -444,6 +474,16 @@ public sealed class WatchlistMenuService
                 buttons.Add(anchors.Select(anchor => new TelegramInlineButton(
                     Mark(anchor.Code == selection.Anchor, anchor.Code),
                     "watch:panel:" + username + ":a=" + anchor.Code)).ToList());
+            }
+        }
+        if (LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex))
+        {
+            string selectedPayment = LaunchpadCatalog.FindFlapBscPaymentToken(selection.Anchor)!.Code;
+            foreach (FlapPaymentToken[] paymentTokens in LaunchpadCatalog.FlapBscPaymentTokens.Chunk(2))
+            {
+                buttons.Add(paymentTokens.Select(paymentToken => new TelegramInlineButton(
+                    Mark(paymentToken.Code == selectedPayment, paymentToken.Code),
+                    "watch:panel:" + username + ":p=" + paymentToken.Code)).ToList());
             }
         }
         if (selection.Chain != null)
@@ -537,17 +577,33 @@ public sealed class WatchlistMenuService
             cancellationToken);
     }
 
-    private async Task ShowCreatorTaxAsync(long chatId, string username, string chain, string dex, string language,
-        CancellationToken cancellationToken)
+    private async Task ShowCreatorTaxAsync(long chatId, string username, string chain, string dex, string? option,
+        string language, CancellationToken cancellationToken)
     {
         int[] rates = dex == "flap" ? [1, 3, 5, 10] : [0, 1, 3, 5, 10];
         List<IReadOnlyList<TelegramInlineButton>> buttons = rates
             .Select(rate => (IReadOnlyList<TelegramInlineButton>)
                 [new TelegramInlineButton(rate == 0 ? text.Get(language, "NoCreatorTax") : rate + "%",
-                    "watch:tax:" + username + ":" + chain + "," + dex + "," + rate)])
+                    "watch:tax:" + username + ":" + chain + "," + dex
+                    + (option == null ? string.Empty : "," + option) + "," + rate)])
             .ToList();
         buttons.Add([new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]);
         await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseCreatorTax"), buttons,
+            cancellationToken);
+    }
+
+    private async Task ShowFlapPaymentTokensAsync(long chatId, string username, string language,
+        CancellationToken cancellationToken)
+    {
+        List<IReadOnlyList<TelegramInlineButton>> buttons = LaunchpadCatalog.FlapBscPaymentTokens
+            .Chunk(2)
+            .Select(row => (IReadOnlyList<TelegramInlineButton>)row
+                .Select(token => new TelegramInlineButton(token.Code,
+                    "watch:payment:" + username + ":bsc,flap," + token.Code))
+                .ToList())
+            .ToList();
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]);
+        await telegramApi.SendButtonsAsync(chatId, text.Get(language, "ChooseFlapPaymentToken"), buttons,
             cancellationToken);
     }
 
@@ -566,8 +622,7 @@ public sealed class WatchlistMenuService
         IReadOnlyList<IReadOnlyList<TelegramInlineButton>> buttons =
         [
             [new TelegramInlineButton(text.Get(language, "Confirm"), "watch:save:" + username + ":" + chain + "," + dex
-                + "," + (anchor ?? (LaunchpadCatalog.SupportsCreatorTax(dex)
-                    ? creatorTaxPercent.ToString() : "none"))
+                + "," + (anchor ?? "none") + "," + creatorTaxPercent
                 + "," + (enableAutoTrading ? "1" : "0") + "," + workerCount)],
             [new TelegramInlineButton(text.Get(language, "Cancel"), "watch:cancel")]
         ];
@@ -576,7 +631,11 @@ public sealed class WatchlistMenuService
             + text.Get(language, "Account") + ": @" + username + "\n"
             + text.Get(language, "Network") + ": " + network.DisplayName + "\n"
             + text.Get(language, "Launchpad") + ": " + launchpad.DisplayName
-            + (anchor == null ? string.Empty : "\n" + text.Get(language, "StockAnchor") + ": " + anchor)
+            + (dex == "long" && anchor != null
+                ? "\n" + text.Get(language, "StockAnchor") + ": " + anchor : string.Empty)
+            + (LaunchpadCatalog.IsFlapBsc(chain, dex)
+                ? "\n" + text.Get(language, "PaymentToken") + ": "
+                    + LaunchpadCatalog.FindFlapBscPaymentToken(anchor)!.Code : string.Empty)
             + (LaunchpadCatalog.SupportsCreatorTax(dex) ? "\n" + text.Get(language, "CreatorTax") + ": "
                 + (creatorTaxPercent == 0 ? text.Get(language, "NoCreatorTax") : creatorTaxPercent + "%")
                 : string.Empty)
@@ -591,9 +650,8 @@ public sealed class WatchlistMenuService
         string? anchor, int creatorTaxPercent, bool enableAutoTrading, string language,
         CancellationToken cancellationToken)
     {
-        string option = anchor ?? (LaunchpadCatalog.SupportsCreatorTax(dex)
-            ? creatorTaxPercent.ToString() : "none");
-        string route = chain + "," + dex + "," + option + "," + (enableAutoTrading ? "1" : "0") + ",";
+        string route = chain + "," + dex + "," + (anchor ?? "none") + "," + creatorTaxPercent + ","
+            + (enableAutoTrading ? "1" : "0") + ",";
         List<IReadOnlyList<TelegramInlineButton>> buttons = Enumerable.Range(1, workerOptions.MaxWorkers)
             .Select(count => (IReadOnlyList<TelegramInlineButton>)[new TelegramInlineButton(count.ToString(),
                 "watch:workers:" + username + ":" + route + count)])
@@ -606,9 +664,7 @@ public sealed class WatchlistMenuService
     private async Task ShowAutoTradingAsync(long chatId, string username, string chain, string dex, string? anchor,
         int creatorTaxPercent, string language, CancellationToken cancellationToken)
     {
-        string option = anchor ?? (LaunchpadCatalog.SupportsCreatorTax(dex)
-            ? creatorTaxPercent.ToString() : "none");
-        string route = chain + "," + dex + "," + option + ",";
+        string route = chain + "," + dex + "," + (anchor ?? "none") + "," + creatorTaxPercent + ",";
         if (chain == "stable")
         {
             await telegramApi.SendButtonsAsync(chatId, text.Get(language, "AutoTradingUnsupported"),

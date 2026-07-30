@@ -101,7 +101,9 @@ public sealed class TokenSettingsService
             return text.Get(language, "InvalidAmount");
         }
 
-        if (amount < network.MinimumBuyAmount)
+        // BSC dùng chung Settings cho Four.Meme và Flap nên bot chỉ yêu cầu số tiền lớn hơn 0.
+        // Nếu contract launchpad có giới hạn riêng, lỗi thật sẽ được ghi vào log khi tạo.
+        if (network.Chain != "bsc" && amount < network.MinimumBuyAmount)
         {
             return text.Get(language, "MinimumBuyAmount", network.DisplayName,
                 network.MinimumBuyAmount, network.Currency);
@@ -176,15 +178,22 @@ public sealed class TokenSettingsService
         List<UserChainTradingSettings> chainSettings = await db.UserChainTradingSettings
             .Where(item => item.ChatId == chatId && routedChains.Contains(item.Chain))
             .ToListAsync(cancellationToken);
-        string? missingChain = routedChains.FirstOrDefault(chain =>
+        WatchlistEntry? missingRoute = routes.FirstOrDefault(route =>
         {
-            decimal minimum = LaunchpadCatalog.Find(chain)?.MinimumBuyAmount ?? 0m;
-            return minimum > 0 && !chainSettings.Any(item => item.Chain == chain && item.BuyAmount >= minimum);
+            if (!LaunchpadCatalog.IsValidRoute(route.TokenChain, route.TokenDex, route.TokenAnchor))
+            {
+                return false;
+            }
+            // BSC dùng chung một số tiền cho Flap và Four.Meme, bot chỉ yêu cầu lớn hơn 0.
+            decimal minimum = route.TokenChain == "bsc"
+                ? 0m : LaunchpadCatalog.Find(route.TokenChain)?.MinimumBuyAmount ?? 0m;
+            return !chainSettings.Any(item => item.Chain == route.TokenChain && item.BuyAmount > 0
+                && (minimum == 0 || item.BuyAmount >= minimum));
         });
-        if (missingChain != null)
+        if (missingRoute != null)
         {
             return text.Get(language, "SetChainFirst",
-                LaunchpadCatalog.Find(missingChain)?.DisplayName ?? missingChain);
+                LaunchpadCatalog.Find(missingRoute.TokenChain)?.DisplayName ?? missingRoute.TokenChain!);
         }
 
         settings.EnableTokenCreation = true;

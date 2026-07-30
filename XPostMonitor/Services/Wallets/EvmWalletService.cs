@@ -248,6 +248,33 @@ public sealed class EvmWalletService
         return result;
     }
 
+    // Lấy đúng các Worker được user tích khi tạo token thủ công.
+    public async Task<IReadOnlyList<TradingWorkerWallet>> GetReadyWorkersAsync(long chatId,
+        IReadOnlyCollection<int> slotNumbers, CancellationToken cancellationToken)
+    {
+        int[] slots = slotNumbers.Distinct().OrderBy(slot => slot).ToArray();
+        if (slots.Length == 0 || slots.Any(slot => slot < 1 || slot > workerOptions.MaxWorkers))
+        {
+            throw new ArgumentOutOfRangeException(nameof(slotNumbers));
+        }
+
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        List<TradingWorker> workers = await db.TradingWorkers.AsNoTracking()
+            .Where(item => item.ChatId == chatId && item.IsEnabled && slots.Contains(item.SlotNumber))
+            .OrderBy(item => item.SlotNumber).ToListAsync(cancellationToken);
+
+        List<TradingWorkerWallet> result = [];
+        foreach (TradingWorker worker in workers)
+        {
+            if (TryReadWallet(worker, out EvmWalletCredentials wallet))
+            {
+                result.Add(new TradingWorkerWallet(worker.Id, worker.SlotNumber, wallet));
+            }
+        }
+        return result;
+    }
+
     public async Task<IReadOnlyList<TradingWorkerState>> GetStatesAsync(long chatId,
         CancellationToken cancellationToken)
     {

@@ -26,6 +26,19 @@ public static class LaunchpadCatalog
         new("TSLA", "TSLA - Tesla", "0x322f0929c4625ed5bad873c95208d54e1c003b2d")
     ];
 
+    // Các payment token RWA đang được Flap cho phép tạo token trên BSC.
+    // BNB dùng địa chỉ zero vì đây là native token của BSC.
+    public static readonly IReadOnlyList<FlapPaymentToken> FlapBscPaymentTokens =
+    [
+        new("BNB", "BNB", "0x0000000000000000000000000000000000000000", 18),
+        new("SPCXB", "SPCXB - SpaceX", "0xbe9D156892E55e7154BcD3cB0FEA677F9D3103E1", 18),
+        new("SKHYB", "SKHYB - SK Hynix", "0xCA750eF65f295BBECd685Abf54e82CAf297BDB61", 18),
+        new("SPYB", "SPYB - SPY", "0x7138b48df7D98D7e3cc221BfE7192D0a178182D8", 18),
+        new("XAUT", "XAUT - Tether Gold", "0x21cAef8A43163Eea865baeE23b9C2E327696A3bf", 6),
+        new("QQQB", "QQQB - Invesco QQQ", "0x205812CdBed920aFf76C6580abD681a46D11efc7", 18),
+        new("NVDAB", "NVDAB - NVIDIA", "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436", 18)
+    ];
+
     public static LaunchpadNetwork? Find(string? chain)
     {
         return All.FirstOrDefault(item => item.Chain == chain?.ToLowerInvariant());
@@ -58,13 +71,47 @@ public static class LaunchpadCatalog
             return false;
         }
 
-        return launchpad?.ToLowerInvariant() != "long" || FindLongAnchor(anchor) != null;
+        if (launchpad?.Equals("long", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return FindLongAnchor(anchor) != null;
+        }
+
+        return !IsFlapBsc(chain, launchpad) || string.IsNullOrWhiteSpace(anchor)
+            || FindFlapBscPaymentToken(anchor) != null;
     }
 
     public static LaunchpadAnchor? FindLongAnchor(string? code)
     {
         return LongAnchors.FirstOrDefault(item =>
             string.Equals(item.Code, code, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool IsFlapBsc(string? chain, string? launchpad)
+    {
+        return chain?.Equals("bsc", StringComparison.OrdinalIgnoreCase) == true
+            && launchpad?.Equals("flap", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    public static FlapPaymentToken? FindFlapBscPaymentToken(string? code)
+    {
+        string normalized = string.IsNullOrWhiteSpace(code) ? "BNB" : code;
+        return FlapBscPaymentTokens.FirstOrDefault(item =>
+            string.Equals(item.Code, normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Chuẩn hóa tùy chọn phụ trước khi lưu DB. Flap-BNB giữ null để tương thích dữ liệu cũ.
+    public static string? NormalizeRouteOption(string? chain, string? launchpad, string? option)
+    {
+        if (launchpad?.Equals("long", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return FindLongAnchor(option)?.Code;
+        }
+        if (IsFlapBsc(chain, launchpad))
+        {
+            FlapPaymentToken? paymentToken = FindFlapBscPaymentToken(option);
+            return paymentToken?.Code == "BNB" ? null : paymentToken?.Code;
+        }
+        return null;
     }
 
     public static string? GetGmgnTokenUrl(string chain, string? tokenAddress)
@@ -82,3 +129,5 @@ public sealed record LaunchpadNetwork(string Chain, string DisplayName, string C
 public sealed record LaunchpadInfo(string Code, string DisplayName);
 
 public sealed record LaunchpadAnchor(string Code, string DisplayName, string TokenAddress);
+
+public sealed record FlapPaymentToken(string Code, string DisplayName, string TokenAddress, int Decimals);

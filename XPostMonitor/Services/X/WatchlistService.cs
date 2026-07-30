@@ -55,7 +55,7 @@ public sealed class WatchlistService
 
         chain = chain?.ToLowerInvariant();
         dex = dex?.ToLowerInvariant();
-        anchor = LaunchpadCatalog.FindLongAnchor(anchor)?.Code;
+        anchor = LaunchpadCatalog.NormalizeRouteOption(chain, dex, anchor);
 
         try
         {
@@ -209,7 +209,7 @@ public sealed class WatchlistService
             string mode = network == null || launchpad == null
                 ? text.Get(language, "AlertsOnly")
                 : network.DisplayName + " · " + launchpad.DisplayName
-                    + (entry.TokenAnchor == null ? string.Empty : " · " + entry.TokenAnchor)
+                    + FormatRouteOption(entry.TokenChain, entry.TokenDex, entry.TokenAnchor, language)
                     + FormatCreatorTax(entry.TokenDex, entry.CreatorTaxPercent, language)
                     + " · " + text.Get(language, autoCreateEnabled ? "AutoCreate" : "AutoCreateOff");
             if (network != null && launchpad != null)
@@ -274,8 +274,22 @@ public sealed class WatchlistService
         return network == null || launchpad == null
             ? text.Get(language, "AlertsOnly")
             : network.DisplayName + " · " + launchpad.DisplayName
-                + (anchor == null ? string.Empty : " · " + anchor)
+                + FormatRouteOption(chain, dex, anchor, language)
                 + FormatCreatorTax(dex, creatorTaxPercent, language);
+    }
+
+    private string FormatRouteOption(string? chain, string? dex, string? option, string language)
+    {
+        if (dex == "long")
+        {
+            return option == null ? string.Empty : " · " + option;
+        }
+        if (LaunchpadCatalog.IsFlapBsc(chain, dex))
+        {
+            return " · " + text.Get(language, "PaymentToken") + ": "
+                + LaunchpadCatalog.FindFlapBscPaymentToken(option)!.Code;
+        }
+        return string.Empty;
     }
 
     private string FormatCreatorTax(string? dex, int creatorTaxPercent, string language)

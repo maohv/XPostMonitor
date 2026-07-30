@@ -180,8 +180,18 @@ public sealed class ManualTokenMenuService
         }
         else if (parts[1] == "upload" && workerCount > 0)
         {
+            IReadOnlyList<TradingWorkerWallet> selectedWorkers = await evmWalletService
+                .GetReadyWorkersAsync(chatId, workerCount, cancellationToken);
+            if (selectedWorkers.Count != workerCount)
+            {
+                int missingSlot = Enumerable.Range(1, workerOptions.MaxWorkers)
+                    .First(slot => selectedWorkers.All(worker => worker.SlotNumber != slot));
+                await telegramApi.SendMessageAsync(chatId,
+                    text.Get(language, "ConfigureWorkerFirst", missingSlot), cancellationToken);
+                return;
+            }
             pendingImages[chatId] = new PendingManualImage(postId, route[0], route[1], anchor,
-                creatorTaxPercent, workerCount);
+                creatorTaxPercent, selectedWorkers.Select(worker => worker.SlotNumber).ToArray());
             await telegramApi.SendButtonsAsync(chatId, text.Get(language, "SendCustomTokenImage"),
                 [[new TelegramInlineButton("✖ " + text.Get(language, "Cancel"), "manual:cancel")]],
                 cancellationToken);
@@ -218,7 +228,7 @@ public sealed class ManualTokenMenuService
             selections.TryRemove((chatId, postId), out _);
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             await CreateAsync(chatId, postId, selection.Chain!, selection.Dex!, selection.Anchor,
-                selection.CreatorTaxPercent!.Value, selection.WorkerCount, null, language, cancellationToken);
+                selection.CreatorTaxPercent!.Value, selection.WorkerSlots, null, language, cancellationToken);
             return;
         }
 
@@ -233,7 +243,8 @@ public sealed class ManualTokenMenuService
 
             selections.TryRemove((chatId, postId), out _);
             pendingImages[chatId] = new PendingManualImage(postId, selection.Chain!, selection.Dex!,
-                selection.Anchor, selection.CreatorTaxPercent!.Value, selection.WorkerCount);
+                selection.Anchor, selection.CreatorTaxPercent!.Value,
+                selection.WorkerSlots.OrderBy(slot => slot).ToArray());
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             await telegramApi.SendButtonsAsync(chatId, text.Get(language, "SendCustomTokenImage"),
                 [[new TelegramInlineButton("X " + text.Get(language, "Cancel"), "manual:cancel")]],
@@ -271,10 +282,13 @@ public sealed class ManualTokenMenuService
         {
             selection.CreatorTaxPercent = tax;
         }
-        else if (value[0] == "w" && int.TryParse(value[1], out int workers)
-            && workers >= 1 && workers <= workerOptions.MaxWorkers)
+        else if (value[0] == "w" && int.TryParse(value[1], out int workerSlot)
+            && workerSlot >= 1 && workerSlot <= workerOptions.MaxWorkers)
         {
-            selection.WorkerCount = workers;
+            if (!selection.WorkerSlots.Add(workerSlot))
+            {
+                selection.WorkerSlots.Remove(workerSlot);
+            }
         }
         else if (value[0] == "i")
         {
@@ -284,6 +298,11 @@ public sealed class ManualTokenMenuService
             && LaunchpadCatalog.FindLongAnchor(value[1]) != null)
         {
             selection.Anchor = value[1];
+        }
+        else if (value[0] == "p" && LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex)
+            && LaunchpadCatalog.FindFlapBscPaymentToken(value[1]) != null)
+        {
+            selection.Anchor = value[1] == "BNB" ? null : value[1];
         }
 
         await ShowAllChoicesAsync(chatId, postId, selection, language, cancellationToken, false, messageId);
@@ -297,9 +316,13 @@ public sealed class ManualTokenMenuService
         LaunchpadInfo? launchpad = network?.Launchpads.FirstOrDefault(item => item.Code == selection.Dex);
         TokenCreateSettings? settings = network == null ? null
             : await tokenSettings.GetChainSettingsAsync(chatId, network.Chain, cancellationToken);
+        string buyCurrency = network?.Currency ?? string.Empty;
+        string flapQuoteToken = LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex)
+            ? LaunchpadCatalog.FindFlapBscPaymentToken(selection.Anchor)!.Code
+            : string.Empty;
         string buyAmount = network == null || settings == null
             ? text.Get(language, "NotSet")
-            : settings.BuyAmount.ToString(CultureInfo.InvariantCulture) + " " + network.Currency;
+            : settings.BuyAmount.ToString(CultureInfo.InvariantCulture) + " " + buyCurrency;
         string image = selection.UseCustomImage.HasValue
             ? text.Get(language, selection.UseCustomImage.Value ? "UploadCustomImage" : "UseAutomaticImage")
             : text.Get(language, "NotSet");
@@ -324,8 +347,15 @@ public sealed class ManualTokenMenuService
         {
             message += text.Get(language, "StockAnchor") + ": " + selection.Anchor + "\n";
         }
-        message += text.Get(language, "ParallelWallets") + ": "
-            + (selection.WorkerCount > 0 ? selection.WorkerCount : text.Get(language, "NotSet")) + "\n"
+        if (LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex))
+        {
+            message += text.Get(language, "PaymentToken") + ": " + flapQuoteToken + "\n";
+        }
+        string selectedWorkers = selection.WorkerSlots.Count == 0
+            ? text.Get(language, "NotSet")
+            : string.Join(", ", selection.WorkerSlots.OrderBy(slot => slot)
+                .Select(slot => text.Get(language, "Worker") + " " + slot));
+        message += text.Get(language, "ParallelWallets") + ": " + selectedWorkers + "\n"
             + text.Get(language, "ChooseManualImage") + " " + image;
 
         List<IReadOnlyList<TelegramInlineButton>> buttons =
@@ -360,10 +390,20 @@ public sealed class ManualTokenMenuService
             }
         }
 
+        if (LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex))
+        {
+            foreach (FlapPaymentToken[] paymentTokens in LaunchpadCatalog.FlapBscPaymentTokens.Chunk(2))
+            {
+                buttons.Add(paymentTokens.Select(paymentToken => new TelegramInlineButton(
+                    Mark(paymentToken.Code == flapQuoteToken, paymentToken.Code),
+                    "manual:panel:" + postId + ":p=" + paymentToken.Code)).ToList());
+            }
+        }
+
         buttons.Add(Enumerable.Range(1, workerOptions.MaxWorkers)
-            .Select(count => new TelegramInlineButton(
-                Mark(count == selection.WorkerCount, text.Get(language, "Worker") + " x" + count),
-                "manual:panel:" + postId + ":w=" + count)).ToList());
+            .Select(slot => new TelegramInlineButton(
+                Mark(selection.WorkerSlots.Contains(slot), text.Get(language, "Worker") + " " + slot),
+                "manual:panel:" + postId + ":w=" + slot)).ToList());
         buttons.Add(
         [
             new TelegramInlineButton(Mark(selection.UseCustomImage == false,
@@ -405,7 +445,7 @@ public sealed class ManualTokenMenuService
             && LaunchpadCatalog.IsValidRoute(selection.Chain, selection.Dex, selection.Anchor)
             && selection.CreatorTaxPercent.HasValue
             && LaunchpadCatalog.IsValidCreatorTax(selection.Dex, selection.CreatorTaxPercent.Value)
-            && selection.WorkerCount > 0;
+            && selection.WorkerSlots.Count > 0;
     }
 
     private async Task ShowLaunchpadsAsync(long chatId, string postId, string chain, string language,
@@ -482,11 +522,12 @@ public sealed class ManualTokenMenuService
 
         LaunchpadNetwork network = LaunchpadCatalog.Find(chain)!;
         LaunchpadInfo launchpad = network.Launchpads.First(item => item.Code == dex);
-        if (settings.BuyAmount < network.MinimumBuyAmount)
+        decimal minimumBuyAmount = chain == "bsc" ? 0m : network.MinimumBuyAmount;
+        if (settings.BuyAmount <= 0 || settings.BuyAmount < minimumBuyAmount)
         {
             await telegramApi.SendMessageAsync(chatId,
                 text.Get(language, "MinimumBuyAmount", network.DisplayName,
-                    network.MinimumBuyAmount, network.Currency), cancellationToken);
+                    minimumBuyAmount, network.Currency), cancellationToken);
             return;
         }
 
@@ -550,14 +591,32 @@ public sealed class ManualTokenMenuService
         int creatorTaxPercent, int workerCount, byte[]? customImage, string language,
         CancellationToken cancellationToken)
     {
+        IReadOnlyList<TradingWorkerWallet> workers = await evmWalletService.GetReadyWorkersAsync(chatId,
+            workerCount, cancellationToken);
+        if (workers.Count != workerCount)
+        {
+            int missingSlot = Enumerable.Range(1, workerOptions.MaxWorkers)
+                .First(slot => workers.All(worker => worker.SlotNumber != slot));
+            await telegramApi.SendMessageAsync(chatId,
+                text.Get(language, "ConfigureWorkerFirst", missingSlot), cancellationToken);
+            return;
+        }
+        await CreateAsync(chatId, postId, chain, dex, anchor, creatorTaxPercent,
+            workers.Select(worker => worker.SlotNumber).ToArray(), customImage, language, cancellationToken);
+    }
+
+    private async Task CreateAsync(long chatId, string postId, string chain, string dex, string? anchor,
+        int creatorTaxPercent, IReadOnlyCollection<int> workerSlots, byte[]? customImage, string language,
+        CancellationToken cancellationToken)
+    {
         try
         {
+            int[] selectedSlots = workerSlots.Distinct().OrderBy(slot => slot).ToArray();
             IReadOnlyList<TradingWorkerWallet> workers = await evmWalletService.GetReadyWorkersAsync(chatId,
-                workerCount, cancellationToken);
-            if (workers.Count != workerCount)
+                selectedSlots, cancellationToken);
+            if (workers.Count != selectedSlots.Length)
             {
-                int missingSlot = Enumerable.Range(1, workerCount)
-                    .First(slot => workers.All(worker => worker.SlotNumber != slot));
+                int missingSlot = selectedSlots.First(slot => workers.All(worker => worker.SlotNumber != slot));
                 await telegramApi.SendMessageAsync(chatId,
                     text.Get(language, "ConfigureWorkerFirst", missingSlot), cancellationToken);
                 return;
@@ -585,7 +644,7 @@ public sealed class ManualTokenMenuService
             string? username = TokenPostContext.GetAuthorUsername(response);
             bool queued = await tokenCreation.QueueManualAsync(chatId, postId, username, tokenText,
                 post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, creatorTaxPercent,
-                workerCount, customImage, language, cancellationToken);
+                selectedSlots, customImage, language, cancellationToken);
             if (!queued)
             {
                 await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualAlreadyRunning"),
@@ -596,7 +655,8 @@ public sealed class ManualTokenMenuService
             bool live = IsLive(chain, dex);
             string queuedText = live ? "ManualQueued" : "TokenTestStarted";
             string message = text.Get(language, queuedText) + "\n"
-                + text.Get(language, "ParallelWallets") + ": " + workerCount;
+                + text.Get(language, "ParallelWallets") + ": "
+                + string.Join(", ", selectedSlots.Select(slot => text.Get(language, "Worker") + " " + slot));
             await telegramApi.SendMessageAsync(chatId, message, cancellationToken);
         }
         catch (Exception exception)
@@ -628,7 +688,7 @@ public sealed class ManualTokenMenuService
         {
             byte[] image = await telegramApi.DownloadPhotoAsync(photo.FileId, cancellationToken);
             await CreateAsync(message.Chat.Id, pending.PostId, pending.Chain, pending.Dex, pending.Anchor,
-                pending.CreatorTaxPercent, pending.WorkerCount, image, language, cancellationToken);
+                pending.CreatorTaxPercent, pending.WorkerSlots, image, language, cancellationToken);
         }
         catch (Exception exception)
         {
@@ -740,7 +800,7 @@ public sealed class ManualTokenMenuService
     }
 
     private sealed record PendingManualImage(string PostId, string Chain, string Dex, string? Anchor,
-        int CreatorTaxPercent, int WorkerCount);
+        int CreatorTaxPercent, IReadOnlyCollection<int> WorkerSlots);
 
     private sealed class ManualTokenSelection
     {
@@ -748,7 +808,7 @@ public sealed class ManualTokenMenuService
         public string? Dex { get; set; }
         public string? Anchor { get; set; }
         public int? CreatorTaxPercent { get; set; }
-        public int WorkerCount { get; set; }
+        public HashSet<int> WorkerSlots { get; } = [];
         public bool? UseCustomImage { get; set; }
     }
 }

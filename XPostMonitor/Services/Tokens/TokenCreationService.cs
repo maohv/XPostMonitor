@@ -91,10 +91,15 @@ public sealed class TokenCreationService : BackgroundService
 
     public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string? username, string postText,
         string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string? anchor,
-        int creatorTaxPercent, int workerCount, byte[]? customImage, string language,
+        int creatorTaxPercent, IReadOnlyCollection<int> workerSlots, byte[]? customImage, string language,
         CancellationToken cancellationToken)
     {
-        workerCount = Math.Clamp(workerCount, 1, workerOptions.MaxWorkers);
+        int[] selectedSlots = workerSlots.Distinct().OrderBy(slot => slot).ToArray();
+        if (selectedSlots.Length == 0 || selectedSlots.Length > workerOptions.MaxWorkers)
+        {
+            return false;
+        }
+        int workerCount = selectedSlots.Length;
         string jobKey = chatId + ":" + postId + ":" + chain + ":" + launchpad + ":" + anchor;
         if (!manualJobs.TryAdd(jobKey, workerCount))
         {
@@ -104,7 +109,7 @@ public sealed class TokenCreationService : BackgroundService
         try
         {
             IReadOnlyList<TradingWorkerWallet> workers = await evmWalletService.GetReadyWorkersAsync(chatId,
-                workerCount, cancellationToken);
+                selectedSlots, cancellationToken);
             if (workers.Count != workerCount)
             {
                 manualJobs.TryRemove(jobKey, out _);
@@ -185,11 +190,13 @@ public sealed class TokenCreationService : BackgroundService
         }
 
         LaunchpadNetwork network = LaunchpadCatalog.Find(request.Chain)!;
-        if (settings.BuyAmount < network.MinimumBuyAmount)
+        string buyCurrency = network.Currency;
+        decimal minimumBuyAmount = request.Chain == "bsc" ? 0m : network.MinimumBuyAmount;
+        if (settings.BuyAmount <= 0 || settings.BuyAmount < minimumBuyAmount)
         {
             await telegramApi.SendMessageAsync(request.ChatId,
                 text.Get(request.Language, "MinimumBuyAmount", network.DisplayName,
-                    network.MinimumBuyAmount, network.Currency), cancellationToken);
+                    minimumBuyAmount, buyCurrency), cancellationToken);
             return;
         }
 
@@ -216,7 +223,7 @@ public sealed class TokenCreationService : BackgroundService
             result.HasEnoughBalance ? "DryRunBalanceEnough" : "DryRunBalanceLow");
         string caption = result.IsDryRun
             ? text.Get(request.Language, "TokenDryRunPassed", request.Launchpad, preview.Draft.Name,
-                preview.Draft.Symbol, settings.BuyAmount, network.Currency, gas, balanceStatus)
+                preview.Draft.Symbol, settings.BuyAmount, buyCurrency, gas, balanceStatus)
             : text.Get(request.Language, "TokenSubmitted", preview.Draft.Name,
                 preview.Draft.Symbol, request.Chain, request.Launchpad);
         if (request.Launchpad == "long")
@@ -231,6 +238,11 @@ public sealed class TokenCreationService : BackgroundService
         {
             caption += "\n" + text.Get(request.Language, "CreatorTax") + ": "
                 + request.CreatorTaxPercent + "%";
+            if (request.Chain == "bsc")
+            {
+                caption += "\n" + text.Get(request.Language, "PaymentToken") + ": "
+                    + LaunchpadCatalog.FindFlapBscPaymentToken(request.Anchor)!.Code;
+            }
         }
         if (!string.IsNullOrWhiteSpace(result.TransactionHash))
         {
@@ -306,7 +318,7 @@ public sealed class TokenCreationService : BackgroundService
 
             FlapTokenRequest flapRequest = new FlapTokenRequest(preview.Draft.Name,
                 preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount,
-                request.CreatorTaxPercent);
+                request.CreatorTaxPercent, request.Anchor);
             FlapTokenResult flapResult = await flapClient.CreateTokenAsync(wallet, flapRequest,
                 cancellationToken);
             return new TokenResult(flapResult.TransactionHash, flapResult.EstimatedGas, flapResult.IsDryRun,

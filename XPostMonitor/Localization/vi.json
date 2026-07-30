@@ -22,8 +22,10 @@
   "UnsupportedSelection": "Lựa chọn không được hỗ trợ. Hãy dùng lại /add.", "ChooseLaunchpad": "Chọn launchpad trên {0}:",
   "ChooseLongAnchor": "Chọn mã cổ phiếu neo cho Long:",
   "ChooseCreatorTax": "Chọn phí nhà sáng tạo sau khi token lên sàn:",
+  "ChooseFlapPaymentToken": "Chọn RWA làm quote token cho Flap (số tiền mua dùng BNB):",
   "PleaseConfirm": "Vui lòng xác nhận:", "Account": "Tài khoản", "Network": "Network", "Launchpad": "Launchpad",
   "StockAnchor": "Cổ phiếu neo",
+  "PaymentToken": "Quote token Flap",
   "CreatorTax": "Phí nhà sáng tạo",
   "CreatorFee": "Phần phí nhà sáng tạo",
   "NoCreatorTax": "Không thu phí",
@@ -123,14 +125,18 @@
   ,"CheckGmgn": "Kiểm tra kết nối GMGN"
   ,"AddTakeProfit": "Thêm mức chốt lời"
   ,"DeleteTakeProfit": "Xóa +{0}% -> {1}%"
-  ,"GenerateWarning": "Bot sẽ tạo khóa ký. Hãy thêm public key và IP server vào GMGN API key, sau đó nhập API key vào bot."
+  ,"GenerateWarning": "Chọn tạo khóa ký mới hoặc nhập private signing key Ed25519 đã có. Sau đó thêm public key và IP server vào GMGN API key."
   ,"GenerateKey": "Tạo khóa ký"
+  ,"ImportSigningKey": "Nhập khóa ký đã có"
+  ,"SendSigningKey": "Gửi private signing key Ed25519 dạng PKCS#8 PEM (bắt đầu bằng -----BEGIN PRIVATE KEY-----). Bot sẽ xóa tin nhắn ngay sau khi đọc. Nếu key khác key hiện tại, API key cũ sẽ được xóa để tránh ký sai."
   ,"ServerIpMissing": "Chưa cấu hình PublicServerIp trong phần GMGN."
   ,"ConnectionCreated": "Đã tạo khóa ký GMGN.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nThêm hai giá trị này vào GMGN, sau đó nhập API key."
+  ,"SigningKeyImported": "Đã nhập khóa ký GMGN.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nHãy bảo đảm API key GMGN dùng đúng public key này, sau đó nhập API key vào bot."
+  ,"InvalidSigningKey": "Khóa ký GMGN không hợp lệ: {0}"
   ,"GenerateFailed": "Không thể tạo khóa ký GMGN: {0}"
   ,"SendApiKey": "Gửi GMGN API key. Key cũ sẽ bị thay thế và bot sẽ xóa tin nhắn này sau khi lưu."
   ,"InvalidApiKey": "GMGN API key không hợp lệ."
-  ,"GenerateFirst": "Hãy tạo khóa ký GMGN trước."
+  ,"GenerateFirst": "Hãy tạo hoặc nhập khóa ký GMGN trước."
   ,"ApiKeySaved": "Đã mã hóa và lưu GMGN API key."
   ,"ConnectFirst": "Hãy kết nối GMGN trước."
   ,"GmgnConnected": "Đã kết nối GMGN. Các chain có ví: {0}"

@@ -111,6 +111,48 @@ public sealed class AutoTradingSettingsService
         return await SaveApiKeyAsync(chatId, 1, value, language, cancellationToken);
     }
 
+    // Cho phép dùng lại signing key GMGN đã có, không bắt buộc tạo key mới.
+    public async Task<string> ImportSigningKeyAsync(long chatId, int slotNumber, string value, string language,
+        CancellationToken cancellationToken)
+    {
+        ValidateSlot(slotNumber);
+        if (!IPAddress.TryParse(options.PublicServerIp, out IPAddress? ip)
+            || ip.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return text.Get(language, "ServerIpMissing");
+        }
+
+        try
+        {
+            using IServiceScope scope = scopeFactory.CreateScope();
+            AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            TradingWorker? worker = await db.TradingWorkers
+                .FirstOrDefaultAsync(item => item.ChatId == chatId && item.SlotNumber == slotNumber,
+                    cancellationToken);
+            if (!HasEvmWallet(worker))
+            {
+                return text.Get(language, "ConfigureWalletBeforeGmgn", slotNumber);
+            }
+
+            GmgnSigningKeyPair keys = await gmgnClient.ImportSigningKeyAsync(value, cancellationToken);
+            bool sameKey = TryUnprotect(worker!.EncryptedGmgnPrivateKey, out string oldKey)
+                && NormalizePem(oldKey) == NormalizePem(keys.PrivateKey);
+            worker.EncryptedGmgnPrivateKey = protector.Protect(keys.PrivateKey);
+            if (!sameKey)
+            {
+                // API key cũ được ghép với public key cũ nên không được giữ khi signing key thay đổi.
+                worker.EncryptedGmgnApiKey = string.Empty;
+            }
+            worker.UpdatedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            return text.Get(language, "SigningKeyImported", keys.PublicKey.Trim(), options.PublicServerIp);
+        }
+        catch (Exception exception)
+        {
+            return text.Get(language, "InvalidSigningKey", exception.Message);
+        }
+    }
+
     public async Task<string> SaveApiKeyAsync(long chatId, int slotNumber, string value, string language,
         CancellationToken cancellationToken)
     {
@@ -320,6 +362,11 @@ public sealed class AutoTradingSettingsService
         {
             return false;
         }
+    }
+
+    private static string NormalizePem(string value)
+    {
+        return value.Replace("\r\n", "\n").Trim();
     }
 
     private void ValidateSlot(int slotNumber)

@@ -83,6 +83,8 @@ public sealed class AutoTradingMenuService
             await telegramApi.SendButtonsAsync(chatId, text.Get(language, "GenerateWarning"),
                 [[new TelegramInlineButton(text.Get(language, "GenerateKey"),
                     "trading:generate:" + slotNumber)],
+                 [new TelegramInlineButton(text.Get(language, "ImportSigningKey"),
+                    "trading:importkey:" + slotNumber)],
                  [new TelegramInlineButton(text.Get(language, "Back"), "trading:worker:" + slotNumber)],
                  [new TelegramInlineButton(text.Get(language, "Cancel"), "trading:close")]], cancellationToken);
             return;
@@ -95,6 +97,13 @@ public sealed class AutoTradingMenuService
                 [[new TelegramInlineButton(text.Get(language, "Back"), "trading:worker:" + slotNumber)],
                  [new TelegramInlineButton(text.Get(language, "Close"), "trading:close")]],
                 cancellationToken, true);
+            return;
+        }
+        if (parts[1] == "importkey")
+        {
+            int slotNumber = ReadSlot(parts);
+            pendingInputs[chatId] = "signing:" + slotNumber;
+            await telegramApi.SendMessageAsync(chatId, text.Get(language, "SendSigningKey"), cancellationToken);
             return;
         }
         if (parts[1] == "api")
@@ -143,6 +152,15 @@ public sealed class AutoTradingMenuService
             await ShowWorkerAsync(message.Chat.Id, slotNumber, language, cancellationToken, result);
             return true;
         }
+        if (type.StartsWith("signing:", StringComparison.Ordinal)
+            && int.TryParse(type[8..], out int signingSlot))
+        {
+            await telegramApi.DeleteMessageAsync(message.Chat.Id, message.MessageId, cancellationToken);
+            result = await settings.ImportSigningKeyAsync(message.Chat.Id, signingSlot, message.Text, language,
+                cancellationToken);
+            await ShowWorkerAsync(message.Chat.Id, signingSlot, language, cancellationToken, result);
+            return true;
+        }
         else
         {
             result = await settings.AddTakeProfitAsync(message.Chat.Id, message.Text, language, cancellationToken);
@@ -183,7 +201,7 @@ public sealed class AutoTradingMenuService
             [new TelegramInlineButton(text.Get(language, "Back"), "trading:show")],
             [new TelegramInlineButton(text.Get(language, "Close"), "trading:close")]
         ];
-        await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
+        await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken, true);
     }
 
     private int ReadSlot(string[] parts)

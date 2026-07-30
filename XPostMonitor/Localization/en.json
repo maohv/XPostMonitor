@@ -43,11 +43,13 @@
   "ChooseLaunchpad": "Choose a launchpad on {0}:",
   "ChooseLongAnchor": "Choose the stock anchor for Long:",
   "ChooseCreatorTax": "Choose the creator tax after graduation:",
+  "ChooseFlapPaymentToken": "Choose the Flap quote token (the initial buy uses BNB):",
   "PleaseConfirm": "Please confirm:",
   "Account": "Account",
   "Network": "Network",
   "Launchpad": "Launchpad",
   "StockAnchor": "Stock anchor",
+  "PaymentToken": "Flap quote token",
   "CreatorTax": "Creator tax",
   "CreatorFee": "Creator fee share",
   "NoCreatorTax": "No creator tax",
@@ -165,14 +167,18 @@
   ,"CheckGmgn": "Check GMGN connection"
   ,"AddTakeProfit": "Add take-profit level"
   ,"DeleteTakeProfit": "Delete +{0}% -> {1}%"
-  ,"GenerateWarning": "The bot will create a signing key. Add the public key and server IP to your GMGN API key, then enter the API key here."
+  ,"GenerateWarning": "Create a new signing key or import an existing Ed25519 private signing key. Then add its public key and the server IP to your GMGN API key."
   ,"GenerateKey": "Create signing key"
+  ,"ImportSigningKey": "Import existing signing key"
+  ,"SendSigningKey": "Send the Ed25519 private signing key in PKCS#8 PEM format (starting with -----BEGIN PRIVATE KEY-----). The bot will delete the message immediately. If it differs from the current key, the old API key will be removed to prevent invalid signing."
   ,"ServerIpMissing": "PublicServerIp is missing from GMGN configuration."
   ,"ConnectionCreated": "GMGN signing key created.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nAdd both values to GMGN, then enter your API key."
+  ,"SigningKeyImported": "GMGN signing key imported.\n\nPublic key:\n<pre>{0}</pre>\nTrusted IP: <code>{1}</code>\n\nMake sure your GMGN API key uses this public key, then enter the API key in the bot."
+  ,"InvalidSigningKey": "Invalid GMGN signing key: {0}"
   ,"GenerateFailed": "Could not create the GMGN signing key: {0}"
   ,"SendApiKey": "Send your GMGN API key. The existing key will be replaced, and this message will be deleted after it is saved."
   ,"InvalidApiKey": "Invalid GMGN API key."
-  ,"GenerateFirst": "Create the GMGN signing key first."
+  ,"GenerateFirst": "Create or import the GMGN signing key first."
   ,"ApiKeySaved": "GMGN API key saved and encrypted."
   ,"ConnectFirst": "Connect GMGN first."
   ,"GmgnConnected": "GMGN connected. Wallet chains: {0}"

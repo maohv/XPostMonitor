@@ -18,8 +18,8 @@
   "AutoCreate": "自动创建", "AutoCreateOff": "自动创建已关闭", "ChooseDestination": "请选择 @{0} 的代币创建位置：",
   "AddCancelled": "已取消添加账号。", "SelectionExpired": "该选择已失效，请重新使用 /add。",
   "UnsupportedNetwork": "不支持该网络，请重新使用 /add。", "UnsupportedSelection": "不支持该选择，请重新使用 /add。",
-  "ChooseLaunchpad": "请选择 {0} 上的 Launchpad：", "ChooseLongAnchor": "请选择 Long 的股票锚点：", "ChooseCreatorTax": "选择代币毕业后的创作者税率：", "PleaseConfirm": "请确认：", "Account": "账号",
-  "Network": "网络", "Launchpad": "Launchpad", "StockAnchor": "股票锚点", "CreatorTax": "创作者税", "CreatorFee": "创作者手续费份额", "NoCreatorTax": "不收取创作者税", "SettingsTitle": "⚙️ 代币创建设置",
+  "ChooseLaunchpad": "请选择 {0} 上的 Launchpad：", "ChooseLongAnchor": "请选择 Long 的股票锚点：", "ChooseCreatorTax": "选择代币毕业后的创作者税率：", "ChooseFlapPaymentToken": "请选择 Flap 的 RWA 报价代币（首次买入使用 BNB）：", "PleaseConfirm": "请确认：", "Account": "账号",
+  "Network": "网络", "Launchpad": "Launchpad", "StockAnchor": "股票锚点", "PaymentToken": "Flap 报价代币", "CreatorTax": "创作者税", "CreatorFee": "创作者手续费份额", "NoCreatorTax": "不收取创作者税", "SettingsTitle": "⚙️ 代币创建设置",
   "Configured": "✅ 已配置", "NotConfigured": "❌ 未配置", "Enabled": "🟢 已开启", "Disabled": "🔴 已关闭",
   "AutoCreateLabel": "自动创建", "NotSet": "未设置", "GasOnly": "仅需 Gas，无初始买入",
   "EnableDisableAuto": "开启 / 关闭自动创建",
@@ -114,14 +114,18 @@
   ,"CheckGmgn": "检查 GMGN 连接"
   ,"AddTakeProfit": "添加止盈级别"
   ,"DeleteTakeProfit": "删除 +{0}% -> {1}%"
-  ,"GenerateWarning": "机器人将创建签名密钥。请把公钥和服务器 IP 添加到 GMGN API Key，然后在机器人中输入 API Key。"
+  ,"GenerateWarning": "请选择创建新签名密钥，或导入已有的 Ed25519 私有签名密钥。然后将公钥和服务器 IP 添加到 GMGN API Key。"
+  ,"ImportSigningKey": "导入已有签名密钥"
+  ,"SendSigningKey": "请发送 PKCS#8 PEM 格式的 Ed25519 私有签名密钥（以 -----BEGIN PRIVATE KEY----- 开头）。机器人读取后会立即删除消息。如果密钥与当前密钥不同，旧 API Key 将被清除以避免签名错误。"
   ,"GenerateKey": "创建签名密钥"
   ,"ServerIpMissing": "GMGN 配置中缺少 PublicServerIp。"
   ,"ConnectionCreated": "GMGN 签名密钥已创建。\n\n公钥：\n<pre>{0}</pre>\n可信 IP：<code>{1}</code>\n\n请把这两个值添加到 GMGN，然后输入 API Key。"
+  ,"SigningKeyImported": "GMGN 签名密钥已导入。\n\n公钥：\n<pre>{0}</pre>\n可信 IP：<code>{1}</code>\n\n请确认 GMGN API Key 使用此公钥，然后在机器人中输入 API Key。"
+  ,"InvalidSigningKey": "GMGN 签名密钥无效：{0}"
   ,"GenerateFailed": "无法创建 GMGN 签名密钥：{0}"
   ,"SendApiKey": "请发送 GMGN API Key。现有 Key 将被替换，保存后该消息会被删除。"
   ,"InvalidApiKey": "GMGN API Key 无效。"
-  ,"GenerateFirst": "请先创建 GMGN 签名密钥。"
+  ,"GenerateFirst": "请先创建或导入 GMGN 签名密钥。"
   ,"ApiKeySaved": "GMGN API Key 已加密保存。"
   ,"ConnectFirst": "请先连接 GMGN。"
   ,"GmgnConnected": "GMGN 已连接。钱包链：{0}"
