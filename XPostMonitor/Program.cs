@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Services;
+using XPostMonitor.Services.ArcBridge;
 using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gemini;
 using XPostMonitor.Services.Gmgn;
@@ -110,6 +111,12 @@ autoTradingOptions.FirstTakeProfitTimeoutSeconds = Math.Max(1,
     autoTradingOptions.FirstTakeProfitTimeoutSeconds);
 builder.Services.AddSingleton(autoTradingOptions);
 
+ArcBridgeOptions arcBridgeOptions = new ArcBridgeOptions();
+builder.Configuration.GetSection(ArcBridgeOptions.SectionName).Bind(arcBridgeOptions);
+arcBridgeOptions.PollIntervalSeconds = Math.Max(1, arcBridgeOptions.PollIntervalSeconds);
+arcBridgeOptions.PollTimeoutMinutes = Math.Max(1, arcBridgeOptions.PollTimeoutMinutes);
+builder.Services.AddSingleton(arcBridgeOptions);
+
 builder.Services.AddHttpClient<XApiClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.x.com/");
@@ -176,10 +183,19 @@ builder.Services.AddHttpClient<PonsRobinhoodClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<ArcBridgeClient>(client =>
+{
+    client.BaseAddress = new Uri("https://dyorarc.fun/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
 // Các service xử lý chức năng thông thường.
 builder.Services.AddSingleton<WatchlistService>();
 builder.Services.AddSingleton<BotTextService>();
 builder.Services.AddSingleton<LanguageMenuService>();
+builder.Services.AddSingleton<ArcBridgeMenuService>();
+builder.Services.AddSingleton<ArcBridgeWalletService>();
+builder.Services.AddSingleton<ArcBridgeTransferService>();
 builder.Services.AddSingleton<ManualTokenMenuService>();
 builder.Services.AddSingleton<WatchlistMenuService>();
 builder.Services.AddSingleton<TokenSettingsMenuService>();

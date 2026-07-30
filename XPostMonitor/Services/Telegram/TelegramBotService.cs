@@ -21,6 +21,7 @@ public sealed class TelegramBotService : BackgroundService
     private readonly ChannelWatchlistService channelWatchlistService;
     private readonly PremiumService premiumService;
     private readonly LanguageMenuService languageMenu;
+    private readonly ArcBridgeMenuService arcBridgeMenu;
     private readonly ManualTokenMenuService manualTokenMenu;
     private readonly BotTextService text;
     private readonly GmgnClient gmgnClient;
@@ -40,7 +41,7 @@ public sealed class TelegramBotService : BackgroundService
         TokenSettingsMenuService tokenSettingsMenu, AutoTradingMenuService autoTradingMenu,
         ChannelWatchlistService channelWatchlistService,
         PremiumService premiumService, LanguageMenuService languageMenu, ManualTokenMenuService manualTokenMenu,
-        BotTextService text,
+        ArcBridgeMenuService arcBridgeMenu, BotTextService text,
         GmgnClient gmgnClient, OpenAiClient openAiClient, FluxClient fluxClient,
         TokenPreviewService tokenPreviewService, BotOptions options,
         ILogger<TelegramBotService> logger)
@@ -53,6 +54,7 @@ public sealed class TelegramBotService : BackgroundService
         this.channelWatchlistService = channelWatchlistService;
         this.premiumService = premiumService;
         this.languageMenu = languageMenu;
+        this.arcBridgeMenu = arcBridgeMenu;
         this.manualTokenMenu = manualTokenMenu;
         this.text = text;
         this.gmgnClient = gmgnClient;
@@ -159,7 +161,8 @@ public sealed class TelegramBotService : BackgroundService
         string language = await premiumService.GetLanguageAsync(message.Chat.Id, cancellationToken);
 
         if (!message.Text!.StartsWith('/')
-            && (await autoTradingMenu.HandlePendingInputAsync(message, cancellationToken)
+            && (await arcBridgeMenu.HandlePendingInputAsync(message, cancellationToken)
+                || await autoTradingMenu.HandlePendingInputAsync(message, cancellationToken)
                 || await tokenSettingsMenu.HandlePendingInputAsync(message, cancellationToken)))
         {
             return;
@@ -243,7 +246,13 @@ public sealed class TelegramBotService : BackgroundService
             bool isAdmin = await telegramApi.IsChannelAdminAsync(telegramChannelId, message.From.Id, cancellationToken);
             reply = isAdmin ? text.Get(language, "AdminHelp") : text.Get(language, "AdminOnly");
         }
-        else if (command.Name is "/start" or "/help")
+        else if (command.Name == "/start")
+        {
+            await arcBridgeMenu.ShowStartAsync(message.Chat.Id, hasPremium, language,
+                cancellationToken);
+            return;
+        }
+        else if (command.Name == "/help")
         {
             reply = hasPremium ? text.Get(language, "PersonalHelp") : text.Get(language, "PersonalClosed");
         }
@@ -298,6 +307,13 @@ public sealed class TelegramBotService : BackgroundService
         {
             await languageMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
                 cancellationToken);
+            return;
+        }
+
+        if (callback.Data.StartsWith("arcbridge:", StringComparison.Ordinal))
+        {
+            await arcBridgeMenu.HandleCallbackAsync(chatId, callback.Message.MessageId,
+                callback.Data, language, cancellationToken);
             return;
         }
 

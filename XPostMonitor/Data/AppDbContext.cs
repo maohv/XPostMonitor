@@ -20,6 +20,8 @@ public sealed class AppDbContext : DbContext
     public DbSet<TakeProfitSetting> TakeProfitSettings { get; set; } = null!;
     public DbSet<AutoTrade> AutoTrades { get; set; } = null!;
     public DbSet<AutoTradeOrder> AutoTradeOrders { get; set; } = null!;
+    public DbSet<ArcBridgeWallet> ArcBridgeWallets { get; set; } = null!;
+    public DbSet<ArcBridgeTransfer> ArcBridgeTransfers { get; set; } = null!;
 
     // Khai báo khóa chính, độ dài cột và quan hệ giữa các bảng.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -80,6 +82,32 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.IsEnabled).HasDefaultValue(true);
             entity.HasIndex(x => new { x.ChatId, x.SlotNumber }).IsUnique();
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.TradingWorkers)
+                .HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArcBridgeWallet>(entity =>
+        {
+            entity.HasKey(x => x.ChatId);
+            entity.Property(x => x.ChatId).ValueGeneratedNever();
+            entity.Property(x => x.WalletAddress).HasMaxLength(42);
+            entity.HasOne(x => x.TelegramUser).WithOne(x => x.ArcBridgeWallet)
+                .HasForeignKey<ArcBridgeWallet>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArcBridgeTransfer>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.WalletAddress).HasMaxLength(42);
+            entity.Property(x => x.Status).HasMaxLength(20);
+            entity.Property(x => x.GrossAmountAtomic).HasMaxLength(78);
+            entity.Property(x => x.ReceiveAmountAtomic).HasMaxLength(78);
+            entity.Property(x => x.MaxFeeAtomic).HasMaxLength(78);
+            entity.Property(x => x.DepositTransactionHash).HasMaxLength(66);
+            entity.Property(x => x.DepositBlockNumber).HasMaxLength(78);
+            entity.Property(x => x.MintTransactionHash).HasMaxLength(66);
+            entity.Property(x => x.ErrorMessage).HasMaxLength(500);
+            entity.HasIndex(x => new { x.ChatId, x.Status });
+            entity.HasOne(x => x.Wallet).WithMany(x => x.Transfers)
                 .HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
         });
 
