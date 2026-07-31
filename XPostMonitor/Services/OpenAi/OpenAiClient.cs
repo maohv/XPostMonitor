@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
+using XPostMonitor.Services.ImageGeneration;
 
 namespace XPostMonitor.Services.OpenAi;
 
@@ -115,10 +116,6 @@ public sealed class OpenAiClient
             };
         }
 
-        string imageStyleInstruction = string.IsNullOrWhiteSpace(chainImageStyle)
-            ? "Choose colors from the source subject or image. "
-            : "The user selected this launch-chain style: " + chainImageStyle
-                + " Always apply this palette to image_prompt while keeping the post subject recognizable. ";
         string reasoningEffort = options.Model.Contains("nano", StringComparison.OrdinalIgnoreCase)
             ? "minimal"
             : "none";
@@ -195,31 +192,27 @@ public sealed class OpenAiClient
                 + "metaphor; an object or product makes that object the dominant subject; a cause-and-result story shows both sides "
                 + "in one readable action. Never fall back to a generic portrait, conference speaker, city skyline, trader, or crypto "
                 + "scene merely because the Post mentions a famous person, event, finance, or crypto. "
-                + "Prefer one dominant character as a centered full-body true chibi mascot, with one humorous costume or prop and a "
-                + "simple relevant setting. Match the expression to the Post's tone and never default to anger. If a real public "
+                + "Prefer one dominant character with one humorous costume or prop and a simple relevant setting. Match the "
+                + "expression to the Post's tone and never default to anger. If a real public "
                 + "figure is named, request a respectful recognizable cartoon caricature using well-known visual traits; never replace "
                 + "that person with a generic businessperson. "
                 + "The image_prompt itself must contain no proper names, usernames, place names, event titles, company names, acronyms, "
                 + "quotes, token names, or symbols because the image model may draw them as text. Convert every name into visual traits "
                 + "and contextual objects instead. Describe a person through recognizable appearance, a place through architecture, "
                 + "transport, landscape, colors, or cultural objects, and an event through physical action rather than signage. If a "
-                + "character would not fit, turn one dominant object into an adorable chibi mascot in a clear action instead. Ask for "
-                + "a polished playful 2D editorial-cartoon illustration with premium mascot design, clean vector-inspired shapes, thick "
-                + "smooth dark-brown outlines, rounded contours, warm pastel colors, flat colors, simple two-tone cel shading, minimal "
-                + "gradients, soft highlights, subtle shadows, and gentle paper grain texture. Use a simple warm minimalist cream and "
-                + "light beige background with enough empty space around the full character. Include a slightly absurd visual joke. Do not copy a known "
+                + "character would not fit, turn one dominant object into a character in a clear action instead. Include a slightly "
+                + "absurd visual joke. Do not copy a known "
                 + "copyrighted fictional character or franchise design. A plain portrait against an abstract city or gradient "
                 + "background is invalid because it does not communicate the hook. Do not create a generic event poster, stage, crowd, collage, trading "
                 + "dashboard, circular badge, logo, or detailed cinematic scene unless the selected hook truly depends on it. If the "
                 + "post asks a question or compares choices, show both choices fairly within one composition without inventing an answer. "
                 + "Before returning JSON, silently verify that a viewer could understand the selected hook from the image_prompt without "
                 + "reading any text. If not, replace the visual idea with a more specific subject, action, and contextual cue. "
-                + "The image must be completely text-free. Do not request letters, words, numbers, emoji glyphs, captions, labels, "
-                + "speech bubbles, signs, documents, pages, whiteboards, screens, user interfaces, or any surface containing writing. "
+                + "Build a naturally text-free scene without signs, documents, screens, interfaces, or other writing surfaces. "
                 + "Turn verbal ideas into clear visual subjects, actions, objects, expressions, and composition instead. "
-                + "Avoid traders at screens and candlestick charts unless the post specifically depends on them. Use strong thumbnail "
-                + "contrast. " + imageStyleInstruction + "The image must contain no pseudo-text, URLs, token symbols, or watermark. "
-                + "Allow only the small launch-chain emblem explicitly requested by the chain style; no other logos or trademarks. "
+                + "Avoid traders at screens and candlestick charts unless the post specifically depends on them. "
+                + "Return scene content only in image_prompt. Do not include art style, color palette, chain colors, logos, image size, "
+                + "quality terms, or negative-prompt instructions; the image renderer adds all of those exactly once. "
                 + "Do not claim endorsement or "
                 + "call the token official. Name must be no more than 20 characters.",
             input,
@@ -303,6 +296,8 @@ public sealed class OpenAiClient
             n = 1
         };
 
+        await ImageGenerationDiagnosticLog.WriteAsync("OpenAI", options.ImageModel, prompt);
+
         using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "v1/images/generations");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
         request.Content = JsonContent.Create(requestBody);
@@ -359,6 +354,8 @@ public sealed class OpenAiClient
             + "two-tone cel shading, minimal gradients, soft highlights, subtle ambient shadows, and gentle paper grain texture. "
             + "Use a simple warm cream and light-beige background with enough empty space. Square composition. No text, watermark, "
             + "photorealism, 3D rendering, exaggerated anime style, malformed hands, extra fingers, missing fingers, or duplicated limbs.";
+
+        await ImageGenerationDiagnosticLog.WriteAsync("OpenAI", options.ImageModel, prompt);
 
         if (!hasCharacter && !hasLogo)
         {

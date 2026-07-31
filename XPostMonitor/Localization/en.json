@@ -75,7 +75,7 @@
   "SetChainFirst": "Set the buy amount for {0} first.",
   "AutoEnabled": "Auto Create enabled. New monitored posts and replies can now create tokens.",
   "TokenFailed": "Token creation failed for Post {0}: {1}",
-  "TokenSkipped": "Token skipped for Post {0}: preparation exceeded 10 seconds.",
+  "TokenSkipped": "Token skipped for Post {0}: preparation exceeded the configured limit of {1} seconds.",
   "TokenSubmitted": "Token created\n\nName: {0}\nSymbol: {1}\nNetwork: {2}\nLaunchpad: {3}",
   "Transaction": "Transaction",
   "Followers": "followers",
@@ -97,7 +97,7 @@
   "ChannelAddFailed": "Could not add @{0} to the channel.", "ChannelNotMonitoring": "@{0} is not monitored by the channel.",
   "ChannelRemoved": "Removed @{0} from the channel.", "ChannelEmpty": "The channel watchlist is empty.",
   "ChannelList": "Channel monitoring:\n- {0}",
-  "PreviewExpired": "Token skipped. Metadata and image preparation reached 10 seconds. It will not be retried.",
+  "PreviewExpired": "Token skipped. Metadata and image preparation exceeded the configured limit of {0} seconds. It will not be retried.",
   "PreviewCaption": "Token preview\n\nName: {0}\nSymbol: {1}\nDescription: {2}\n\nSource: {3}\nOpenAI: {4} seconds\nImage: {5} seconds\nTotal: {6} seconds\n\nPreview only. No token was created.",
   "PostImage": "post image", "PostText": "post text",
   "FluxImageCaption": "FLUX token image\nGenerated in {0} seconds", "AiImageCaption": "AI token image",
@@ -208,14 +208,16 @@
   ,"LocalTakeProfitFilled": "Pons take profit completed for {0}.\nTarget: +{1}%\nSold: {2}% of initial tokens\nTransaction: {3}"
   ,"LocalAutoTradingCompleted": "Pons Auto Trading completed for {0}.\nSold: {1}% of initial tokens"
   ,"AutoExitNoBuyer": "No external buyer was detected within {0} seconds."
-  ,"AutoExitTp1Timeout": "TP1 was not filled within {0} seconds after the first buyer."
+  ,"AutoExitAllBuyersLeft": "All detected buyers sold their tokens, and no buyer returned within {0} seconds before TP1."
+  ,"AutoExitNoBuyerAfterTp": "No new external buyer was detected for {0} seconds after TP1 was filled."
+  ,"AutoTradingMonitoringFailed": "Buyer monitoring failed, so the bot did not auto-sell. Existing TP orders remain active. Error: {0}"
   ,"GmgnAndAutoTrading": "GMGN API & Auto Trading"
   ,"DefaultBuyAmounts": "Default Buy Amounts"
   ,"ChooseBuyAmountNetwork": "Choose a network to set its default initial buy amount:"
   ,"Worker": "Worker"
   ,"ParallelWallets": "Parallel wallets"
   ,"ChooseWorkerWallet": "Choose a worker wallet to configure:"
-  ,"ConfigureWorkerFirst": "Configure Wallet {0} before choosing this number of wallets."
+  ,"ConfigureWorkerFirst": "Wallet {0} is not configured. Configure the wallet you selected."
   ,"ConfigureWallets": "Configure wallets"
   ,"ChooseWorkerCount": "How many wallets should create tokens for each Post from @{0}?"
   ,"TokensPerPost": "Wallets used"
@@ -272,4 +274,14 @@
   ,"ArcBridgeSuccess": "Bridge completed.\n\nReceived on Arc: {0} USDC\nBase transaction: {1}\nArc transaction: {2}"
   ,"ArcBridgeClaimSuccess": "Gateway claim completed.\n\nReceived on Arc: {0} USDC\nArc transaction: {1}"
   ,"ArcBridgeFailed": "Arc Bridge failed: {0}\n\nIf the Base deposit was already sent, reopen /start and choose “Resume pending Bridge”."
+  ,"LinkAutoSettings": "X link creation mode"
+  ,"LinkAutoTitle": "X link creation settings"
+  ,"LinkAutoMode": "Mode"
+  ,"LinkAutoModeAuto": "Create automatically"
+  ,"LinkAutoModeManual": "Choose manually"
+  ,"LinkAutoSendAmount": "Send the initial buy amount ({0})."
+  ,"LinkAutoSaved": "X link creation settings saved. This does not change username Auto Create settings."
+  ,"LinkAutoQueued": "The X link was queued for automatic token creation."
+  ,"BuyAmount": "Initial buy amount"
+  ,"CustomTokenNameInvalid": "The token symbol must contain 2–15 letters or numbers; the token name must not exceed 20 characters."
 }

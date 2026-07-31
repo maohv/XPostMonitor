@@ -6,5 +6,5 @@ public sealed class GeminiOptions
 
     public string ApiKey { get; set; } = string.Empty;
     public string ImageModel { get; set; } = "gemini-3.1-flash-image";
-    public string ImageSize { get; set; } = "512";
+    public string ImageSize { get; set; } = "1K";
 }

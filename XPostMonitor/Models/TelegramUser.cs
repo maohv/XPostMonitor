@@ -17,5 +17,6 @@ public sealed class TelegramUser
     public ICollection<TradingWorker> TradingWorkers { get; set; } = new List<TradingWorker>();
     public ICollection<AutoTrade> AutoTrades { get; set; } = new List<AutoTrade>();
     public UserTradingSettings? TradingSettings { get; set; }
+    public LinkTokenSettings? LinkTokenSettings { get; set; }
     public ArcBridgeWallet? ArcBridgeWallet { get; set; }
 }

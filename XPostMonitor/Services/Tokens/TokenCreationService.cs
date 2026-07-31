@@ -79,19 +79,45 @@ public sealed class TokenCreationService : BackgroundService
             return;
         }
 
+        SharedTokenPreview sharedPreview = new SharedTokenPreview();
         foreach (TradingWorkerWallet worker in workers)
         {
             await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
                 sourceLanguage, photoUrl, null, postUrl, chain, launchpad, anchor, useOriginalImage,
                 creatorTaxPercent,
-                enableAutoTrading, BotTextService.Normalize(language), receivedAt, false, null, worker.WorkerId,
-                worker.SlotNumber, workerCount), cancellationToken);
+                enableAutoTrading, null, BotTextService.Normalize(language), receivedAt, false, null, worker.WorkerId,
+                worker.SlotNumber, workerCount, sharedPreview), cancellationToken);
         }
     }
 
     public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string? username, string postText,
         string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string? anchor,
         int creatorTaxPercent, IReadOnlyCollection<int> workerSlots, byte[]? customImage, string language,
+        CancellationToken cancellationToken)
+    {
+        return await QueueDirectLinkAsync(chatId, postId, username, postText, sourceLanguage, photoUrl,
+            postUrl, chain, launchpad, anchor, creatorTaxPercent, workerSlots, customImage,
+            true, null, null, null, language, cancellationToken);
+    }
+
+    // Auto của link dùng cùng hàng đợi nhanh, nhưng mang theo số tiền riêng từ LinkTokenSettings.
+    public async ValueTask<bool> QueueLinkAutoAsync(long chatId, string postId, string? username, string postText,
+        string? sourceLanguage, string? photoUrl, string postUrl, LinkTokenConfiguration settings,
+        IReadOnlyCollection<int> workerSlots, byte[]? customImage, string? tokenNameOverride,
+        string? tokenSymbolOverride, string language, CancellationToken cancellationToken)
+    {
+        TokenCreateSettings amountSettings = new(settings.BuyAmount, settings.SlippagePercent);
+        return await QueueDirectLinkAsync(chatId, postId, username, postText, sourceLanguage, photoUrl,
+            postUrl, settings.Chain, settings.Launchpad, settings.Anchor, settings.CreatorTaxPercent,
+            workerSlots, customImage, settings.EnableAutoTrading, amountSettings, tokenNameOverride,
+            tokenSymbolOverride, language, cancellationToken);
+    }
+
+    private async ValueTask<bool> QueueDirectLinkAsync(long chatId, string postId, string? username,
+        string postText, string? sourceLanguage, string? photoUrl, string postUrl, string chain,
+        string launchpad, string? anchor, int creatorTaxPercent, IReadOnlyCollection<int> workerSlots,
+        byte[]? customImage, bool enableAutoTrading, TokenCreateSettings? settingsOverride,
+        string? tokenNameOverride, string? tokenSymbolOverride, string language,
         CancellationToken cancellationToken)
     {
         int[] selectedSlots = workerSlots.Distinct().OrderBy(slot => slot).ToArray();
@@ -116,13 +142,16 @@ public sealed class TokenCreationService : BackgroundService
                 return false;
             }
 
+            SharedTokenPreview sharedPreview = new SharedTokenPreview();
             foreach (TradingWorkerWallet worker in workers)
             {
                 await queue.Writer.WriteAsync(new TokenCreationRequest(chatId, postId, username, postText,
                     sourceLanguage, photoUrl, customImage, postUrl, chain, launchpad, anchor,
                     customImage != null || !string.IsNullOrWhiteSpace(photoUrl), creatorTaxPercent, true,
-                    BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey, worker.WorkerId,
-                    worker.SlotNumber, workerCount), cancellationToken);
+                    settingsOverride, BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey,
+                    worker.WorkerId,
+                    worker.SlotNumber, workerCount, sharedPreview, tokenNameOverride, tokenSymbolOverride),
+                    cancellationToken);
             }
             return true;
         }
@@ -176,9 +205,9 @@ public sealed class TokenCreationService : BackgroundService
                 cancellationToken)
             : (await evmWalletService.GetReadyWorkersAsync(request.ChatId, 1, cancellationToken))
                 .FirstOrDefault();
-        TokenCreateSettings? settings = request.IsManual
+        TokenCreateSettings? settings = request.SettingsOverride ?? (request.IsManual
             ? await tokenSettings.GetChainSettingsAsync(request.ChatId, request.Chain, cancellationToken)
-            : await tokenSettings.GetAutoCreateSettingsAsync(request.ChatId, request.Chain, cancellationToken);
+            : await tokenSettings.GetAutoCreateSettingsAsync(request.ChatId, request.Chain, cancellationToken));
         if (worker == null || settings == null)
         {
             if (request.IsManual)
@@ -200,19 +229,30 @@ public sealed class TokenCreationService : BackgroundService
             return;
         }
 
-        string aiPostText = AddSourceLanguage(request.PostText, request.SourceLanguage);
-        TokenPreviewDto preview = request.CustomImage != null
-            ? await tokenPreviewService.CreateWithUploadedImageAsync(aiPostText, request.CustomImage,
-                request.ReceivedAt, request.Chain, cancellationToken)
-            : request.UseOriginalImage
-            ? await tokenPreviewService.CreateWithOriginalImageAsync(aiPostText, request.PhotoUrl,
-                request.ReceivedAt, request.Chain, !request.IsManual, cancellationToken)
-            : await tokenPreviewService.CreateAsync(aiPostText, request.PhotoUrl,
-                request.ReceivedAt, request.Chain, request.Username, !request.IsManual, cancellationToken);
+        TokenPreviewDto preview;
+        try
+        {
+            preview = await request.SharedPreview.GetOrCreateAsync(
+                () => CreatePreviewAsync(request, cancellationToken));
+        }
+        catch
+        {
+            // Preview dùng chung bị lỗi thì chỉ một worker gửi thông báo; các worker còn lại dừng im lặng.
+            if (!request.SharedPreview.TryBeginFailureNotification())
+            {
+                return;
+            }
+            throw;
+        }
+
         if (preview.IsExpired)
         {
-            await telegramApi.SendMessageAsync(request.ChatId,
-                text.Get(request.Language, "TokenSkipped", request.PostId), cancellationToken);
+            if (request.SharedPreview.TryBeginFailureNotification())
+            {
+                await telegramApi.SendMessageAsync(request.ChatId,
+                    text.Get(request.Language, "TokenSkipped", request.PostId,
+                        tokenPreviewService.AutoTimeoutSeconds), cancellationToken);
+            }
             return;
         }
 
@@ -274,6 +314,29 @@ public sealed class TokenCreationService : BackgroundService
         await telegramApi.SendPhotoAsync(request.ChatId, preview.Image, caption, cancellationToken);
         logger.LogInformation("[{Launchpad}] Post {PostId} finished. Dry run: {IsDryRun}. Transaction {TransactionHash}.",
             request.Launchpad, request.PostId, result.IsDryRun, result.TransactionHash);
+    }
+
+    // Tên, mã và ảnh chỉ được chuẩn bị một lần rồi dùng chung cho mọi ví trong cùng một Post.
+    private async Task<TokenPreviewDto> CreatePreviewAsync(TokenCreationRequest request,
+        CancellationToken cancellationToken)
+    {
+        string aiPostText = AddSourceLanguage(request.PostText, request.SourceLanguage);
+        TokenPreviewDto preview = request.CustomImage != null
+            ? await tokenPreviewService.CreateWithUploadedImageAsync(aiPostText, request.CustomImage,
+                request.ReceivedAt, request.Chain, cancellationToken)
+            : request.UseOriginalImage
+            ? await tokenPreviewService.CreateWithOriginalImageAsync(aiPostText, request.PhotoUrl,
+                request.ReceivedAt, request.Chain, !request.IsManual, cancellationToken)
+            : await tokenPreviewService.CreateAsync(aiPostText, request.PhotoUrl,
+                request.ReceivedAt, request.Chain, request.Username, !request.IsManual, cancellationToken);
+
+        // Tên user gửi kèm ảnh được ưu tiên; AI vẫn viết mô tả dựa trên nội dung Post.
+        if (!string.IsNullOrWhiteSpace(request.TokenNameOverride))
+        {
+            preview.Draft.Name = request.TokenNameOverride;
+            preview.Draft.Symbol = request.TokenSymbolOverride ?? request.TokenNameOverride;
+        }
+        return preview;
     }
 
     private async Task<TokenResult> CreateOnLaunchpadAsync(TokenCreationRequest request,
@@ -362,9 +425,33 @@ public sealed class TokenCreationService : BackgroundService
 
     private sealed record TokenCreationRequest(long ChatId, string PostId, string? Username, string PostText,
         string? SourceLanguage, string? PhotoUrl, byte[]? CustomImage, string PostUrl, string Chain, string Launchpad,
-        string? Anchor, bool UseOriginalImage, int CreatorTaxPercent, bool EnableAutoTrading, string Language,
-        DateTimeOffset ReceivedAt, bool IsManual, string? ManualJobKey, long? TradingWorkerId, int WorkerSlot,
-        int VariantCount);
+        string? Anchor, bool UseOriginalImage, int CreatorTaxPercent, bool EnableAutoTrading,
+        TokenCreateSettings? SettingsOverride, string Language, DateTimeOffset ReceivedAt, bool IsManual,
+        string? ManualJobKey,
+        long? TradingWorkerId, int WorkerSlot,
+        int VariantCount, SharedTokenPreview SharedPreview, string? TokenNameOverride = null,
+        string? TokenSymbolOverride = null);
+
+    private sealed class SharedTokenPreview
+    {
+        private readonly object sync = new object();
+        private Task<TokenPreviewDto>? previewTask;
+        private int failureNotificationSent;
+
+        public Task<TokenPreviewDto> GetOrCreateAsync(Func<Task<TokenPreviewDto>> createPreview)
+        {
+            lock (sync)
+            {
+                previewTask ??= createPreview();
+                return previewTask;
+            }
+        }
+
+        public bool TryBeginFailureNotification()
+        {
+            return Interlocked.Exchange(ref failureNotificationSent, 1) == 0;
+        }
+    }
 
     private sealed record TokenResult(string? TransactionHash, BigInteger? EstimatedGas, bool IsDryRun,
         bool HasEnoughBalance, string? TokenAddress);

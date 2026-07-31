@@ -32,7 +32,7 @@
   "AddRouteFirst": "请先添加至少一个带网络和 Launchpad 的 X 账号。", "SetChainFirst": "请先设置 {0} 的买入金额。",
   "AutoEnabled": "自动创建已开启，新的帖子和回复可以创建代币。",
   "TokenFailed": "Post {0} 创建代币失败：{1}",
-  "TokenSkipped": "已跳过 Post {0} 的代币：准备时间超过 10 秒。",
+  "TokenSkipped": "已跳过 Post {0} 的代币：准备时间超过配置的 {1} 秒限制。",
   "TokenSubmitted": "代币创建成功\n\n名称：{0}\n代码：{1}\n网络：{2}\nLaunchpad：{3}",
   "Transaction": "交易", "Followers": "关注者", "ReplyingTo": "正在回复 @{0}",
   "Reposted": "已转发", "QuotedPost": "引用帖子", "NewPost": "新帖子", "Unknown": "未知",
@@ -44,7 +44,7 @@
   "ChannelAddFailed": "无法将 @{0} 添加到频道。", "ChannelNotMonitoring": "频道没有监控 @{0}。",
   "ChannelRemoved": "已从频道移除 @{0}。", "ChannelEmpty": "频道监控列表为空。",
   "ChannelList": "频道正在监控：\n- {0}",
-  "PreviewExpired": "已跳过代币：元数据和图片准备超过 10 秒，不会重试。",
+  "PreviewExpired": "已跳过代币：元数据和图片准备超过配置的 {0} 秒限制，不会重试。",
   "PreviewCaption": "代币预览\n\n名称：{0}\n代码：{1}\n描述：{2}\n\n来源：{3}\nOpenAI：{4} 秒\n图片：{5} 秒\n总计：{6} 秒\n\n仅供预览，尚未创建代币。",
   "PostImage": "帖子图片", "PostText": "帖子文本",
   "FluxImageCaption": "FLUX 代币图片\n生成耗时 {0} 秒", "AiImageCaption": "AI 代币图片",
@@ -155,14 +155,16 @@
   ,"LocalTakeProfitFilled": "{0} \u7684 Pons \u6b62\u76c8\u5df2\u5b8c\u6210\u3002\n\u76ee\u6807\uff1a+{1}%\n\u5356\u51fa\uff1a\u521d\u59cb\u4ee3\u5e01\u7684 {2}%\n\u4ea4\u6613\uff1a{3}"
   ,"LocalAutoTradingCompleted": "{0} \u7684 Pons \u81ea\u52a8\u4ea4\u6613\u5df2\u5b8c\u6210\u3002\n\u5df2\u5356\u51fa\uff1a\u521d\u59cb\u4ee3\u5e01\u7684 {1}%"
   ,"AutoExitNoBuyer": "{0} \u79d2\u5185\u672a\u68c0\u6d4b\u5230\u5916\u90e8\u4e70\u5bb6\u3002"
-  ,"AutoExitTp1Timeout": "\u9996\u4e2a\u4e70\u5bb6\u51fa\u73b0\u540e {0} \u79d2\u5185 TP1 \u672a\u6210\u4ea4\u3002"
+  ,"AutoExitAllBuyersLeft": "\u6240\u6709\u5df2\u68c0\u6d4b\u5230\u7684\u4e70\u5bb6\u90fd\u5df2\u5356\u51fa\u4ee3\u5e01\uff0c\u4e14 TP1 \u524d {0} \u79d2\u5185\u6ca1\u6709\u4e70\u5bb6\u56de\u5f52\u3002"
+  ,"AutoExitNoBuyerAfterTp": "TP1 \u6210\u4ea4\u540e {0} \u79d2\u5185\u672a\u68c0\u6d4b\u5230\u65b0\u7684\u5916\u90e8\u4e70\u5bb6\u3002"
+  ,"AutoTradingMonitoringFailed": "\u4e70\u5bb6\u76d1\u63a7\u5931\u8d25\uff0c\u56e0\u6b64\u673a\u5668\u4eba\u672a\u81ea\u52a8\u5356\u51fa\u3002\u73b0\u6709 TP \u8ba2\u5355\u4ecd\u4fdd\u6301\u6d3b\u52a8\u3002\u9519\u8bef\uff1a{0}"
   ,"GmgnAndAutoTrading": "GMGN API \u4e0e\u81ea\u52a8\u4ea4\u6613"
   ,"DefaultBuyAmounts": "\u9ed8\u8ba4\u4e70\u5165\u91d1\u989d"
   ,"ChooseBuyAmountNetwork": "\u9009\u62e9\u7f51\u7edc\u5e76\u8bbe\u7f6e\u9ed8\u8ba4\u521d\u59cb\u4e70\u5165\u91d1\u989d\uff1a"
   ,"Worker": "钱包"
   ,"ParallelWallets": "并行钱包"
   ,"ChooseWorkerWallet": "选择要配置的钱包："
-  ,"ConfigureWorkerFirst": "请先配置钱包 {0}，再选择此钱包数量。"
+  ,"ConfigureWorkerFirst": "钱包 {0} 尚未配置。请配置您所选择的钱包。"
   ,"ConfigureWallets": "配置钱包"
   ,"ChooseWorkerCount": "@{0} 每条 Post 使用多少个钱包创建代币？"
   ,"TokensPerPost": "创建代币的钱包数"
@@ -219,4 +221,14 @@
   ,"ArcBridgeSuccess": "Bridge \u5df2\u5b8c\u6210\u3002\n\nArc \u6536\u5230\uff1a{0} USDC\nBase \u4ea4\u6613\uff1a{1}\nArc \u4ea4\u6613\uff1a{2}"
   ,"ArcBridgeClaimSuccess": "Gateway \u9886\u53d6\u5df2\u5b8c\u6210\u3002\n\nArc \u6536\u5230\uff1a{0} USDC\nArc \u4ea4\u6613\uff1a{1}"
   ,"ArcBridgeFailed": "Arc Bridge \u5931\u8d25\uff1a{0}\n\n\u5982\u679c Base deposit \u5df2\u53d1\u9001\uff0c\u8bf7\u91cd\u65b0\u6253\u5f00 /start \u5e76\u9009\u62e9\u201c\u7ee7\u7eed\u7b49\u5f85\u4e2d\u7684 Bridge\u201d\u3002"
+  ,"LinkAutoSettings": "X 链接创建模式"
+  ,"LinkAutoTitle": "X 链接代币创建设置"
+  ,"LinkAutoMode": "模式"
+  ,"LinkAutoModeAuto": "自动创建"
+  ,"LinkAutoModeManual": "手动选择"
+  ,"LinkAutoSendAmount": "请发送初始买入金额（{0}）。"
+  ,"LinkAutoSaved": "X 链接创建设置已保存。这不会更改 username 的 Auto Create 设置。"
+  ,"LinkAutoQueued": "X 链接已加入自动创建代币队列。"
+  ,"BuyAmount": "初始买入金额"
+  ,"CustomTokenNameInvalid": "代币代码必须包含 2–15 个字母或数字；代币名称不能超过 20 个字符。"
 }

@@ -23,6 +23,7 @@ public sealed class TelegramBotService : BackgroundService
     private readonly LanguageMenuService languageMenu;
     private readonly ArcBridgeMenuService arcBridgeMenu;
     private readonly ManualTokenMenuService manualTokenMenu;
+    private readonly LinkTokenSettingsMenuService linkTokenSettingsMenu;
     private readonly BotTextService text;
     private readonly GmgnClient gmgnClient;
     private readonly OpenAiClient openAiClient;
@@ -41,7 +42,7 @@ public sealed class TelegramBotService : BackgroundService
         TokenSettingsMenuService tokenSettingsMenu, AutoTradingMenuService autoTradingMenu,
         ChannelWatchlistService channelWatchlistService,
         PremiumService premiumService, LanguageMenuService languageMenu, ManualTokenMenuService manualTokenMenu,
-        ArcBridgeMenuService arcBridgeMenu, BotTextService text,
+        ArcBridgeMenuService arcBridgeMenu, LinkTokenSettingsMenuService linkTokenSettingsMenu, BotTextService text,
         GmgnClient gmgnClient, OpenAiClient openAiClient, FluxClient fluxClient,
         TokenPreviewService tokenPreviewService, BotOptions options,
         ILogger<TelegramBotService> logger)
@@ -56,6 +57,7 @@ public sealed class TelegramBotService : BackgroundService
         this.languageMenu = languageMenu;
         this.arcBridgeMenu = arcBridgeMenu;
         this.manualTokenMenu = manualTokenMenu;
+        this.linkTokenSettingsMenu = linkTokenSettingsMenu;
         this.text = text;
         this.gmgnClient = gmgnClient;
         this.openAiClient = openAiClient;
@@ -163,6 +165,7 @@ public sealed class TelegramBotService : BackgroundService
         if (!message.Text!.StartsWith('/')
             && (await arcBridgeMenu.HandlePendingInputAsync(message, cancellationToken)
                 || await autoTradingMenu.HandlePendingInputAsync(message, cancellationToken)
+                || await linkTokenSettingsMenu.HandlePendingInputAsync(message, cancellationToken)
                 || await tokenSettingsMenu.HandlePendingInputAsync(message, cancellationToken)))
         {
             return;
@@ -329,6 +332,16 @@ public sealed class TelegramBotService : BackgroundService
             await watchlistMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data, language,
                 cancellationToken);
         }
+        else if (callback.Data == "linkauto:show")
+        {
+            await telegramApi.DeleteMessageAsync(chatId, callback.Message.MessageId, cancellationToken);
+            await linkTokenSettingsMenu.ShowAsync(chatId, cancellationToken);
+        }
+        else if (callback.Data.StartsWith("linkauto:", StringComparison.Ordinal))
+        {
+            await linkTokenSettingsMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
+                cancellationToken);
+        }
         else if (callback.Data.StartsWith("settings:", StringComparison.Ordinal))
         {
             await tokenSettingsMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
@@ -369,7 +382,8 @@ public sealed class TelegramBotService : BackgroundService
             if (preview.IsExpired)
             {
                 await telegramApi.SendMessageAsync(message.Chat.Id,
-                    text.Get(language, "PreviewExpired"), cancellationToken);
+                    text.Get(language, "PreviewExpired", tokenPreviewService.AutoTimeoutSeconds),
+                    cancellationToken);
                 return;
             }
 

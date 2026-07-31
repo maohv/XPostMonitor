@@ -103,8 +103,7 @@ public sealed class AutoTradingService : BackgroundService
         Task preparationTask = PrepareAsync(request, preparationCancellation.Token);
 
         TimeSpan buyerTimeout = TimeSpan.FromSeconds(autoTradingOptions.NoBuyerTimeoutSeconds);
-        DateTimeOffset buyerDeadline = DateTimeOffset.UtcNow.Add(buyerTimeout);
-        DateTimeOffset? firstExternalBuy = null;
+        ExternalBuy? firstExternalBuy;
         try
         {
             firstExternalBuy = await WaitForExternalBuyAsync(request, buyerTimeout,
@@ -114,61 +113,43 @@ public sealed class AutoTradingService : BackgroundService
         {
             logger.LogWarning(exception, "[GMGN] Cannot monitor buyers for token {TokenAddress}.",
                 request.TokenAddress);
-            await AutoTradingDiagnosticLog.WriteAsync("BUY MONITOR ERROR | Symbol=" + request.TokenSymbol
+            await AutoTradingDiagnosticLog.WriteAsync("BUY MONITOR FAILED SAFE | Symbol=" + request.TokenSymbol
                 + " | " + exception);
-            TimeSpan remainingTime = buyerDeadline - DateTimeOffset.UtcNow;
-            if (remainingTime > TimeSpan.Zero)
-            {
-                await Task.Delay(remainingTime, cancellationToken);
-            }
+
+            // Lỗi RPC không có nghĩa là không có người mua. Giữ TP và tuyệt đối không tự bán.
+            await preparationTask;
+            await NotifyMonitoringFailedAsync(request, exception, cancellationToken);
+            return;
         }
 
         if (firstExternalBuy == null)
         {
             preparationCancellation.Cancel();
             await ObservePreparationAsync(preparationTask, request);
-            await ExitPositionAsync(request, GetAutoExitReason(request.Language, false, false)!,
-                cancellationToken);
+            string reason = text.Get(request.Language, "AutoExitNoBuyer",
+                autoTradingOptions.NoBuyerTimeoutSeconds);
+            await ExitPositionAsync(request, reason, cancellationToken);
             return;
         }
 
-        await Task.Delay(TimeSpan.FromSeconds(autoTradingOptions.FirstTakeProfitTimeoutSeconds),
-            cancellationToken);
-        bool firstTakeProfitFilled = await IsFirstTakeProfitFilledAsync(request, cancellationToken);
-        string? exitReason = GetAutoExitReason(request.Language, true, firstTakeProfitFilled);
-        if (exitReason == null)
-        {
-            await preparationTask;
-            return;
-        }
+        await AutoTradingDiagnosticLog.WriteAsync("FIRST BUY DETECTED | Symbol=" + request.TokenSymbol
+            + " | Buyer=" + firstExternalBuy.BuyerAddress + " | Tx=" + firstExternalBuy.TransactionHash);
+        await preparationTask;
 
-        preparationCancellation.Cancel();
-        await ObservePreparationAsync(preparationTask, request);
-        await ExitPositionAsync(request, exitReason, cancellationToken);
+        // Không giữ worker tại đây. Token tự theo dõi TP1 và buyer tiếp theo bằng tác vụ riêng.
+        _ = MonitorAfterFirstBuyerAsync(request, firstExternalBuy, cancellationToken);
     }
 
-    private string? GetAutoExitReason(string language, bool hasExternalBuyer,
-        bool firstTakeProfitFilled)
-    {
-        if (!hasExternalBuyer)
-        {
-            return text.Get(language, "AutoExitNoBuyer", autoTradingOptions.NoBuyerTimeoutSeconds);
-        }
-
-        return firstTakeProfitFilled
-            ? null
-            : text.Get(language, "AutoExitTp1Timeout", autoTradingOptions.FirstTakeProfitTimeoutSeconds);
-    }
-
-    private async Task<DateTimeOffset?> WaitForExternalBuyAsync(AutoTradingRequest request,
+    private async Task<ExternalBuy?> WaitForExternalBuyAsync(AutoTradingRequest request,
         TimeSpan timeout, CancellationToken cancellationToken)
     {
         Web3 web3 = new Web3(GetLaunchpadHandler(request).RpcUrl);
+        Dictionary<string, bool> walletAddressCache = new(StringComparer.OrdinalIgnoreCase);
         BigInteger nextBlock = await GetMonitoringStartBlockAsync(web3, request.LaunchTransactionHash,
             cancellationToken);
         DateTimeOffset deadline = DateTimeOffset.UtcNow.Add(timeout);
 
-        while (DateTimeOffset.UtcNow < deadline)
+        while (!cancellationToken.IsCancellationRequested)
         {
             BigInteger latestBlock = (await web3.Eth.Blocks.GetBlockNumber.SendRequestAsync()
                 .WaitAsync(cancellationToken)).Value;
@@ -185,15 +166,26 @@ public sealed class AutoTradingService : BackgroundService
                     .WaitAsync(cancellationToken);
                 foreach (FilterLog log in logs)
                 {
-                    if (IsExternalTransfer(log, request.WalletAddress, request.LaunchTransactionHash))
+                    if (TryReadExternalBuyer(log, request.WalletAddress, request.LaunchTransactionHash,
+                            out string buyerAddress, out string sourceAddress)
+                        && !await IsWalletAddressAsync(web3, sourceAddress, walletAddressCache,
+                            cancellationToken)
+                        && await IsWalletAddressAsync(web3, buyerAddress, walletAddressCache,
+                            cancellationToken))
                     {
-                        return DateTimeOffset.UtcNow;
+                        return new ExternalBuy(log.TransactionHash ?? string.Empty, buyerAddress);
                     }
                 }
                 nextBlock = latestBlock + 1;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return null;
+            }
+            await Task.Delay(remaining < TimeSpan.FromSeconds(2)
+                ? remaining : TimeSpan.FromSeconds(2), cancellationToken);
         }
 
         return null;
@@ -221,31 +213,383 @@ public sealed class AutoTradingService : BackgroundService
         return BigInteger.Max(BigInteger.Zero, latestBlock - 100);
     }
 
-    private static bool IsExternalTransfer(FilterLog log, string walletAddress,
-        string? launchTransactionHash)
+    private static bool TryReadExternalBuyer(FilterLog log, string walletAddress,
+        string? ignoredTransactionHash, out string buyerAddress, out string sourceAddress)
     {
-        if (!string.IsNullOrWhiteSpace(launchTransactionHash)
-            && string.Equals(log.TransactionHash, launchTransactionHash, StringComparison.OrdinalIgnoreCase))
+        buyerAddress = string.Empty;
+        sourceAddress = string.Empty;
+        if (!string.IsNullOrWhiteSpace(ignoredTransactionHash)
+            && string.Equals(log.TransactionHash, ignoredTransactionHash, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
+        if (!TryReadTransferAddresses(log, out string sender, out string receiver))
+        {
+            return false;
+        }
+
+        const string zeroAddress = "0x0000000000000000000000000000000000000000";
+        bool isExternalBuyer = !string.Equals(sender, zeroAddress, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(receiver, zeroAddress, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(sender, walletAddress, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(receiver, walletAddress, StringComparison.OrdinalIgnoreCase);
+        if (isExternalBuyer)
+        {
+            buyerAddress = receiver;
+            sourceAddress = sender;
+        }
+        return isExternalBuyer;
+    }
+
+    private static bool IsWorkerSellTransfer(FilterLog log, string walletAddress,
+        string? launchTransactionHash)
+    {
+        if (!string.IsNullOrWhiteSpace(launchTransactionHash)
+            && string.Equals(log.TransactionHash, launchTransactionHash,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        if (!TryReadTransferAddresses(log, out string sender, out string receiver))
+        {
+            return false;
+        }
+
+        return string.Equals(sender, walletAddress, StringComparison.OrdinalIgnoreCase)
+            && receiver != "0x0000000000000000000000000000000000000000";
+    }
+
+    private static bool TryReadTransferAddresses(FilterLog log, out string sender,
+        out string receiver)
+    {
+        sender = string.Empty;
+        receiver = string.Empty;
         if (log.Topics == null || log.Topics.Length < 3)
         {
             return false;
         }
 
-        string topic = log.Topics[2]?.ToString() ?? string.Empty;
-        if (topic.Length < 40)
+        string senderTopic = log.Topics[1]?.ToString() ?? string.Empty;
+        string receiverTopic = log.Topics[2]?.ToString() ?? string.Empty;
+        if (senderTopic.Length < 40 || receiverTopic.Length < 40)
         {
             return false;
         }
 
-        string receiver = "0x" + topic[^40..];
-        return receiver != "0x0000000000000000000000000000000000000000"
-            && !string.Equals(receiver, walletAddress, StringComparison.OrdinalIgnoreCase);
+        sender = "0x" + senderTopic[^40..];
+        receiver = "0x" + receiverTopic[^40..];
+        return true;
     }
 
-    private async Task<bool> IsFirstTakeProfitFilledAsync(AutoTradingRequest request,
+    // Giao dịch mua hợp lệ phải đi từ contract/pool sang ví người dùng.
+    private static async Task<bool> IsWalletAddressAsync(Web3 web3, string address,
+        Dictionary<string, bool> cache, CancellationToken cancellationToken)
+    {
+        if (cache.TryGetValue(address, out bool isWallet))
+        {
+            return isWallet;
+        }
+
+        string code = await web3.Eth.GetCode.SendRequestAsync(address).WaitAsync(cancellationToken);
+        isWallet = string.IsNullOrWhiteSpace(code) || code is "0x" or "0x0";
+        cache[address] = isWallet;
+        return isWallet;
+    }
+
+    private static async Task<BigInteger> GetTokenBalanceAsync(Web3 web3, string tokenAddress,
+        string walletAddress, CancellationToken cancellationToken)
+    {
+        return await web3.Eth.ERC20.GetContractService(tokenAddress)
+            .BalanceOfQueryAsync(walletAddress).WaitAsync(cancellationToken);
+    }
+
+    private async Task MonitorAfterFirstBuyerAsync(AutoTradingRequest request,
+        ExternalBuy firstBuyer, CancellationToken cancellationToken)
+    {
+        try
+        {
+            BeforeFirstTakeProfitResult? beforeTp1 = await MonitorBeforeFirstTakeProfitAsync(request,
+                firstBuyer, cancellationToken);
+            if (beforeTp1 == null)
+            {
+                return;
+            }
+
+            if (beforeTp1.AllBuyersExited)
+            {
+                bool hasTokensBeforeTpExit = await HasTokenBalanceAsync(request, cancellationToken);
+                if (!hasTokensBeforeTpExit)
+                {
+                    return;
+                }
+
+                string exitReason = text.Get(request.Language, "AutoExitAllBuyersLeft",
+                    autoTradingOptions.BuyerInactivitySeconds);
+                await AutoTradingDiagnosticLog.WriteAsync("ALL BUYERS EXITED BEFORE TP1 | Symbol="
+                    + request.TokenSymbol + " | Seconds="
+                    + autoTradingOptions.BuyerInactivitySeconds);
+                await ExitPositionAsync(request, exitReason, cancellationToken);
+                return;
+            }
+
+            await AutoTradingDiagnosticLog.WriteAsync("TP1 FILLED | Symbol=" + request.TokenSymbol
+                + " | Tx=" + beforeTp1.FirstTakeProfitTransactionHash);
+            TimeSpan inactivityTimeout = TimeSpan.FromSeconds(
+                autoTradingOptions.BuyerInactivitySeconds);
+            bool shouldExit = await WaitForBuyerInactivityAsync(request,
+                beforeTp1.FirstTakeProfitTransactionHash ?? string.Empty, inactivityTimeout,
+                cancellationToken);
+            if (!shouldExit)
+            {
+                return;
+            }
+
+            bool stillHasTokens = await HasTokenBalanceAsync(request, cancellationToken);
+            if (!stillHasTokens)
+            {
+                await AutoTradingDiagnosticLog.WriteAsync("BUY INACTIVITY STOP | Symbol="
+                    + request.TokenSymbol + " | Wallet has no remaining token balance.");
+                return;
+            }
+
+            string reason = text.Get(request.Language, "AutoExitNoBuyerAfterTp",
+                autoTradingOptions.BuyerInactivitySeconds);
+            await AutoTradingDiagnosticLog.WriteAsync("BUY INACTIVITY EXIT | Symbol="
+                + request.TokenSymbol + " | Seconds="
+                + autoTradingOptions.BuyerInactivitySeconds);
+            await ExitPositionAsync(request, reason, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "[GMGN] Follow-up buyer monitoring failed for {TokenAddress}.",
+                request.TokenAddress);
+            await AutoTradingDiagnosticLog.WriteAsync("FOLLOW-UP MONITOR FAILED SAFE | Symbol="
+                + request.TokenSymbol + " | " + exception);
+            await NotifyMonitoringFailedAsync(request, exception, CancellationToken.None);
+        }
+    }
+
+    // Trước TP1: theo dõi số dư những buyer đã thấy. Chỉ đọc lại ví vừa mua, bán hoặc chuyển token.
+    private async Task<BeforeFirstTakeProfitResult?> MonitorBeforeFirstTakeProfitAsync(
+        AutoTradingRequest request, ExternalBuy firstBuyer, CancellationToken cancellationToken)
+    {
+        Web3 web3 = new Web3(GetLaunchpadHandler(request).RpcUrl);
+        Dictionary<string, bool> walletAddressCache = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> trackedBuyers = new(StringComparer.OrdinalIgnoreCase)
+        {
+            firstBuyer.BuyerAddress
+        };
+        Dictionary<string, bool> buyerIsHolding = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> addressesToCheck = new(StringComparer.OrdinalIgnoreCase)
+        {
+            firstBuyer.BuyerAddress
+        };
+        TimeSpan exitTimeout = TimeSpan.FromSeconds(autoTradingOptions.BuyerInactivitySeconds);
+        DateTimeOffset? allBuyersExitedDeadline = null;
+        BigInteger nextBlock = await GetMonitoringStartBlockAsync(web3,
+            firstBuyer.TransactionHash, cancellationToken);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            bool sawBuyerActivity = false;
+            BigInteger latestBlock = (await web3.Eth.Blocks.GetBlockNumber.SendRequestAsync()
+                .WaitAsync(cancellationToken)).Value;
+            if (latestBlock >= nextBlock)
+            {
+                NewFilterInput filter = new NewFilterInput
+                {
+                    Address = [request.TokenAddress],
+                    FromBlock = new BlockParameter(new HexBigInteger(nextBlock)),
+                    ToBlock = new BlockParameter(new HexBigInteger(latestBlock)),
+                    Topics = [TransferTopic]
+                };
+                FilterLog[] logs = await web3.Eth.Filters.GetLogs.SendRequestAsync(filter)
+                    .WaitAsync(cancellationToken);
+                foreach (FilterLog log in logs)
+                {
+                    if (IsWorkerSellTransfer(log, request.WalletAddress,
+                            request.LaunchTransactionHash))
+                    {
+                        return new BeforeFirstTakeProfitResult(
+                            log.TransactionHash ?? string.Empty, false);
+                    }
+
+                    if (!TryReadTransferAddresses(log, out string sender, out _))
+                    {
+                        continue;
+                    }
+                    if (trackedBuyers.Contains(sender))
+                    {
+                        addressesToCheck.Add(sender);
+                    }
+
+                    if (!TryReadExternalBuyer(log, request.WalletAddress,
+                            request.LaunchTransactionHash, out string buyerAddress,
+                            out string sourceAddress)
+                        || await IsWalletAddressAsync(web3, sourceAddress, walletAddressCache,
+                            cancellationToken)
+                        || !await IsWalletAddressAsync(web3, buyerAddress, walletAddressCache,
+                            cancellationToken))
+                    {
+                        continue;
+                    }
+
+                    trackedBuyers.Add(buyerAddress);
+                    addressesToCheck.Add(buyerAddress);
+                    sawBuyerActivity = true;
+                    await AutoTradingDiagnosticLog.WriteAsync("BUY BEFORE TP1 | Symbol="
+                        + request.TokenSymbol + " | Buyer=" + buyerAddress + " | Tx="
+                        + log.TransactionHash);
+                }
+                nextBlock = latestBlock + 1;
+            }
+
+            foreach (string buyerAddress in addressesToCheck)
+            {
+                BigInteger balance = await GetTokenBalanceAsync(web3, request.TokenAddress,
+                    buyerAddress, cancellationToken);
+                bool isHolding = balance > 0;
+                bool changed = !buyerIsHolding.TryGetValue(buyerAddress, out bool previous)
+                    || previous != isHolding;
+                buyerIsHolding[buyerAddress] = isHolding;
+                if (changed)
+                {
+                    await AutoTradingDiagnosticLog.WriteAsync("BUYER BALANCE | Symbol="
+                        + request.TokenSymbol + " | Buyer=" + buyerAddress + " | Holding="
+                        + isHolding + " | RawBalance=" + balance);
+                }
+            }
+            addressesToCheck.Clear();
+
+            bool hasActiveBuyer = buyerIsHolding.Values.Any(isHolding => isHolding);
+            if (hasActiveBuyer)
+            {
+                if (allBuyersExitedDeadline != null)
+                {
+                    await AutoTradingDiagnosticLog.WriteAsync("BUYER EXIT TIMER CANCELLED | Symbol="
+                        + request.TokenSymbol + " | A buyer holds tokens again.");
+                }
+                allBuyersExitedDeadline = null;
+            }
+            else
+            {
+                if (allBuyersExitedDeadline == null || sawBuyerActivity)
+                {
+                    allBuyersExitedDeadline = DateTimeOffset.UtcNow.Add(exitTimeout);
+                    await AutoTradingDiagnosticLog.WriteAsync("ALL BUYERS EXITED TIMER START | Symbol="
+                        + request.TokenSymbol + " | Seconds=" + exitTimeout.TotalSeconds);
+                }
+                if (DateTimeOffset.UtcNow >= allBuyersExitedDeadline.Value)
+                {
+                    return new BeforeFirstTakeProfitResult(null, true);
+                }
+            }
+
+            if (!await HasOpenTakeProfitOrdersAsync(request, cancellationToken))
+            {
+                return null;
+            }
+
+            TimeSpan delay = allBuyersExitedDeadline.HasValue
+                ? allBuyersExitedDeadline.Value - DateTimeOffset.UtcNow
+                : TimeSpan.FromSeconds(2);
+            if (delay > TimeSpan.FromSeconds(2))
+            {
+                delay = TimeSpan.FromSeconds(2);
+            }
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
+
+        return null;
+    }
+
+    // Sau TP1, mỗi buyer mới đều đặt lại đồng hồ về đủ số giây đã cấu hình.
+    private async Task<bool> WaitForBuyerInactivityAsync(AutoTradingRequest request,
+        string firstTakeProfitTransactionHash, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        Web3 web3 = new Web3(GetLaunchpadHandler(request).RpcUrl);
+        Dictionary<string, bool> walletAddressCache = new(StringComparer.OrdinalIgnoreCase);
+        BigInteger nextBlock = await GetBlockAfterTransactionAsync(web3,
+            firstTakeProfitTransactionHash, cancellationToken);
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.Add(timeout);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            BigInteger latestBlock = (await web3.Eth.Blocks.GetBlockNumber.SendRequestAsync()
+                .WaitAsync(cancellationToken)).Value;
+            if (latestBlock >= nextBlock)
+            {
+                NewFilterInput filter = new NewFilterInput
+                {
+                    Address = [request.TokenAddress],
+                    FromBlock = new BlockParameter(new HexBigInteger(nextBlock)),
+                    ToBlock = new BlockParameter(new HexBigInteger(latestBlock)),
+                    Topics = [TransferTopic]
+                };
+                FilterLog[] logs = await web3.Eth.Filters.GetLogs.SendRequestAsync(filter)
+                    .WaitAsync(cancellationToken);
+                foreach (FilterLog log in logs)
+                {
+                    if (!TryReadExternalBuyer(log, request.WalletAddress,
+                            firstTakeProfitTransactionHash, out string buyerAddress,
+                            out string sourceAddress)
+                        || await IsWalletAddressAsync(web3, sourceAddress, walletAddressCache,
+                            cancellationToken)
+                        || !await IsWalletAddressAsync(web3, buyerAddress, walletAddressCache,
+                            cancellationToken))
+                    {
+                        continue;
+                    }
+
+                    deadline = DateTimeOffset.UtcNow.Add(timeout);
+                    await AutoTradingDiagnosticLog.WriteAsync("BUY AFTER TP1 | Symbol="
+                        + request.TokenSymbol + " | Buyer=" + buyerAddress + " | Tx="
+                        + log.TransactionHash + " | TimerResetSeconds=" + timeout.TotalSeconds);
+                }
+                nextBlock = latestBlock + 1;
+            }
+
+            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return true;
+            }
+            await Task.Delay(remaining < TimeSpan.FromSeconds(2)
+                ? remaining : TimeSpan.FromSeconds(2), cancellationToken);
+        }
+
+        return false;
+    }
+
+    private static async Task<BigInteger> GetBlockAfterTransactionAsync(Web3 web3,
+        string? transactionHash, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(transactionHash))
+        {
+            for (int attempt = 1; attempt <= 10; attempt++)
+            {
+                TransactionReceipt? receipt = await web3.Eth.Transactions.GetTransactionReceipt
+                    .SendRequestAsync(transactionHash).WaitAsync(cancellationToken);
+                if (receipt?.BlockNumber != null)
+                {
+                    return receipt.BlockNumber.Value;
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+            }
+        }
+
+        BigInteger latestBlock = (await web3.Eth.Blocks.GetBlockNumber.SendRequestAsync()
+            .WaitAsync(cancellationToken)).Value;
+        return latestBlock + 1;
+    }
+
+    private async Task<bool> HasOpenTakeProfitOrdersAsync(AutoTradingRequest request,
         CancellationToken cancellationToken)
     {
         using IServiceScope scope = scopeFactory.CreateScope();
@@ -253,30 +597,31 @@ public sealed class AutoTradingService : BackgroundService
         AutoTrade? trade = await db.AutoTrades.Include(item => item.Orders)
             .Where(item => item.ChatId == request.ChatId && item.TokenAddress == request.TokenAddress)
             .OrderByDescending(item => item.Id).FirstOrDefaultAsync(cancellationToken);
-        AutoTradeOrder? firstOrder = trade?.Orders.OrderBy(item => item.ProfitPercent).FirstOrDefault();
-        if (trade == null || firstOrder == null)
-        {
-            return false;
-        }
-        if (firstOrder.Status == "filled")
-        {
-            return true;
-        }
-        if (firstOrder.GmgnOrderId.StartsWith("local:", StringComparison.Ordinal))
-        {
-            // TP của Pons được bot theo dõi trong database, không tồn tại trong danh sách order GMGN.
-            return false;
-        }
+        return trade?.Status == "active" && trade.Orders.Any(item => item.Status == "open");
+    }
 
-        GmgnCredentials? credentials = await settings.GetCredentialsAsync(request.ChatId,
-            request.TradingWorkerId, cancellationToken);
-        if (credentials == null)
+    private async Task<bool> HasTokenBalanceAsync(AutoTradingRequest request,
+        CancellationToken cancellationToken)
+    {
+        BigInteger balance = await GetLaunchpadHandler(request).GetTokenBalanceAsync(
+            request.WalletAddress, request.TokenAddress, cancellationToken);
+        return balance > 0;
+    }
+
+    private async Task NotifyMonitoringFailedAsync(AutoTradingRequest request, Exception exception,
+        CancellationToken cancellationToken)
+    {
+        try
         {
-            return false;
+            await telegramApi.SendMessageAsync(request.ChatId,
+                text.Get(request.Language, "AutoTradingMonitoringFailed", Shorten(exception.Message)),
+                cancellationToken);
         }
-        List<GmgnStrategyOrder> remoteOrders = await gmgnClient.GetTakeProfitOrdersAsync(credentials,
-            trade.Chain, trade.WalletAddress, trade.TokenAddress, cancellationToken);
-        return remoteOrders.Any(item => item.OrderId == firstOrder.GmgnOrderId && item.Status == "filled");
+        catch (Exception notificationException)
+        {
+            logger.LogWarning(notificationException,
+                "[GMGN] Cannot send buyer-monitoring failure notification.");
+        }
     }
 
     private async Task ExitPositionAsync(AutoTradingRequest request, string reason,
@@ -288,6 +633,9 @@ public sealed class AutoTradingService : BackgroundService
             GmgnCredentials credentials = await settings.GetCredentialsAsync(request.ChatId,
                 request.TradingWorkerId,
                 cancellationToken) ?? throw new InvalidOperationException("GMGN is not connected.");
+
+            // Hủy TP còn mở trước khi bán hết để tránh TP và lệnh bán cùng khớp một lúc.
+            await CloseRemainingOrdersAsync(request, credentials, handler.GmgnChain, cancellationToken);
             string quoteToken = await handler.GetSellQuoteTokenAsync(credentials, request.TokenAddress,
                 cancellationToken);
             BigInteger? exactAmountIn = await handler.GetSellAmountAsync(request.WalletAddress,
@@ -303,7 +651,6 @@ public sealed class AutoTradingService : BackgroundService
                 request.WalletAddress, request.TokenAddress, quoteToken, exactAmountIn,
                 request.SlippagePercent, cancellationToken);
 
-            await CloseRemainingOrdersAsync(request, credentials, handler.GmgnChain, cancellationToken);
             await MarkTradeExitedAsync(request, reason, cancellationToken);
             await AutoTradingDiagnosticLog.WriteAsync("AUTO EXIT SOLD | Symbol=" + request.TokenSymbol
                 + " | Reason=" + reason + " | Reference=" + sellReference);
@@ -363,6 +710,8 @@ public sealed class AutoTradingService : BackgroundService
             catch (Exception exception)
             {
                 logger.LogWarning(exception, "[GMGN] Cannot cancel TP order {OrderId}.", order.GmgnOrderId);
+                throw new InvalidOperationException("Cannot cancel remaining TP order "
+                    + order.GmgnOrderId + ". Auto-sell was stopped for safety.", exception);
             }
         }
     }
@@ -891,6 +1240,11 @@ public sealed class AutoTradingService : BackgroundService
         string Launchpad,
         string TokenAddress, string TokenName, string TokenSymbol, string WalletAddress, decimal SlippagePercent,
         string? LaunchTransactionHash, string Language, int GroupSize);
+
+    private sealed record ExternalBuy(string TransactionHash, string BuyerAddress);
+
+    private sealed record BeforeFirstTakeProfitResult(string? FirstTakeProfitTransactionHash,
+        bool AllBuyersExited);
 
     private sealed class GroupedNotification(long chatId, string language, string eventName, int expectedCount)
     {

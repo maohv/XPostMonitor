@@ -4,6 +4,7 @@ using XPostMonitor.Dtos;
 using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gemini;
 using XPostMonitor.Services.OpenAi;
+using XPostMonitor.Services.ZImage;
 
 namespace XPostMonitor.Services;
 
@@ -12,14 +13,19 @@ public sealed class TokenPreviewService
     private readonly OpenAiClient openAiClient;
     private readonly FluxClient fluxClient;
     private readonly GeminiImageClient geminiImageClient;
+    private readonly ZImageClient zImageClient;
     private readonly ImageGenerationOptions imageGenerationOptions;
 
+    public int AutoTimeoutSeconds => Math.Max(0, imageGenerationOptions.AutoCreateTimeoutSeconds);
+
     public TokenPreviewService(OpenAiClient openAiClient, FluxClient fluxClient,
-        GeminiImageClient geminiImageClient, ImageGenerationOptions imageGenerationOptions)
+        GeminiImageClient geminiImageClient, ZImageClient zImageClient,
+        ImageGenerationOptions imageGenerationOptions)
     {
         this.openAiClient = openAiClient;
         this.fluxClient = fluxClient;
         this.geminiImageClient = geminiImageClient;
+        this.zImageClient = zImageClient;
         this.imageGenerationOptions = imageGenerationOptions;
     }
 
@@ -76,7 +82,9 @@ public sealed class TokenPreviewService
         }
 
         string? imageStyle = GetChainImageStyle(chain);
-        string? chainLogoBase64 = GetChainLogoBase64(chain);
+        string? chainLogoBase64 = imageGenerationOptions.EnableChainLogo
+            ? GetChainLogoBase64(chain)
+            : null;
         string? characterImageBase64 = string.IsNullOrWhiteSpace(imageUrl)
             ? GetCharacterImageBase64(username)
             : null;
@@ -279,9 +287,14 @@ public sealed class TokenPreviewService
                     imageUrl = image.Url;
                     break;
 
+                case "zimage":
+                    imageData = await zImageClient.CreateTokenImageAsync(draft.ImagePrompt, imageStyle,
+                        characterImageBase64, deadline.Token);
+                    break;
+
                 default:
                     throw new InvalidOperationException(
-                        "ImageGeneration:Provider must be OpenAi, Gemini, or Flux.");
+                        "ImageGeneration:Provider must be OpenAi, Gemini, Flux, or ZImage.");
             }
             timer.Stop();
 
@@ -317,11 +330,11 @@ public sealed class TokenPreviewService
     {
         return chain?.ToLowerInvariant() switch
         {
-            "bsc" => "Keep natural subject colors dominant with BNB yellow #F0B90B, charcoal black, and white accents. Naturally print one clearly recognizable black BNB Chain geometric logo on a yellow physical object that belongs in the scene, such as a cap, shirt, backpack, phone case, vehicle, or prop. The logo must follow the object's perspective and material, never float separately, never become a watermark, and include no brand text.",
+            "bsc" => "Keep natural subject colors dominant with BNB yellow #F0B90B, charcoal black, and white accents.",
             "base" => "Keep natural subject colors dominant. Add subtle Base blue #0052FF, white, and deep navy accents only in lighting, edges, or background details.",
             "sol" => "Keep natural subject colors dominant. Add subtle Solana purple #9945FF, mint green #14F195, and cyan accents only in lighting, edges, or background details.",
-            "robinhood" => "Keep natural subject colors dominant with Robinhood neon green, black, and white accents. Naturally print one clearly recognizable black Robinhood feather logo on a neon-green physical object that belongs in the scene, such as a cap, shirt, backpack, phone case, vehicle, or prop. The logo must follow the object's perspective and material, never float separately, never become a watermark, and include no brand text.",
-            "stable" => "Keep natural subject colors dominant with Stable dark green, pale mint, white, and graphite accents. Naturally print one clearly recognizable pale-mint Stable symbol on a dark-green physical object that belongs in the scene, such as a cap, shirt, backpack, phone case, vehicle, or prop. The logo must follow the object's perspective and material, never float separately, never become a watermark, and include no brand text.",
+            "robinhood" => "Keep natural subject colors dominant with Robinhood neon green, black, and white accents.",
+            "stable" => "Keep natural subject colors dominant with Stable dark green, pale mint, white, and graphite accents.",
             _ => null
         };
     }

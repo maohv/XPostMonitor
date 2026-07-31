@@ -57,6 +57,7 @@ public sealed class TokenSettingsMenuService
             [new TelegramInlineButton(text.Get(language, "GmgnAndAutoTrading"), "trading:show")],
             [new TelegramInlineButton(text.Get(language, "DefaultBuyAmounts"), "settings:amounts")]
         ];
+        buttons.Add([new TelegramInlineButton(text.Get(language, "LinkAutoSettings"), "linkauto:show")]);
         buttons.Add(CloseButtons(language)[0]);
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }

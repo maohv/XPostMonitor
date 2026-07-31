@@ -28,6 +28,7 @@ using XPostMonitor.Services.Wallets;
 using XPostMonitor.Services.X;
 using XPostMonitor.Services.X.Channels;
 using XPostMonitor.Services.X.Notifications;
+using XPostMonitor.Services.ZImage;
 
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
@@ -58,6 +59,10 @@ builder.Services.AddSingleton(fluxOptions);
 GeminiOptions geminiOptions = new GeminiOptions();
 builder.Configuration.GetSection(GeminiOptions.SectionName).Bind(geminiOptions);
 builder.Services.AddSingleton(geminiOptions);
+
+ZImageOptions zImageOptions = new ZImageOptions();
+builder.Configuration.GetSection(ZImageOptions.SectionName).Bind(zImageOptions);
+builder.Services.AddSingleton(zImageOptions);
 
 ImageGenerationOptions imageGenerationOptions = new ImageGenerationOptions();
 builder.Configuration.GetSection(ImageGenerationOptions.SectionName).Bind(imageGenerationOptions);
@@ -107,8 +112,8 @@ builder.Services.AddSingleton(tradingWorkersOptions);
 AutoTradingOptions autoTradingOptions = new AutoTradingOptions();
 builder.Configuration.GetSection(AutoTradingOptions.SectionName).Bind(autoTradingOptions);
 autoTradingOptions.NoBuyerTimeoutSeconds = Math.Max(1, autoTradingOptions.NoBuyerTimeoutSeconds);
-autoTradingOptions.FirstTakeProfitTimeoutSeconds = Math.Max(1,
-    autoTradingOptions.FirstTakeProfitTimeoutSeconds);
+autoTradingOptions.BuyerInactivitySeconds = Math.Max(1,
+    autoTradingOptions.BuyerInactivitySeconds);
 builder.Services.AddSingleton(autoTradingOptions);
 
 ArcBridgeOptions arcBridgeOptions = new ArcBridgeOptions();
@@ -183,6 +188,12 @@ builder.Services.AddHttpClient<PonsRobinhoodClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient<ZImageClient>(client =>
+{
+    client.BaseAddress = new Uri("https://fal.run/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
 builder.Services.AddHttpClient<ArcBridgeClient>(client =>
 {
     client.BaseAddress = new Uri("https://dyorarc.fun/");
@@ -197,6 +208,7 @@ builder.Services.AddSingleton<ArcBridgeMenuService>();
 builder.Services.AddSingleton<ArcBridgeWalletService>();
 builder.Services.AddSingleton<ArcBridgeTransferService>();
 builder.Services.AddSingleton<ManualTokenMenuService>();
+builder.Services.AddSingleton<LinkTokenSettingsMenuService>();
 builder.Services.AddSingleton<WatchlistMenuService>();
 builder.Services.AddSingleton<TokenSettingsMenuService>();
 builder.Services.AddSingleton<AutoTradingMenuService>();
@@ -212,6 +224,7 @@ builder.Services.AddSingleton<IAutoTradingLaunchpadHandler, LongRobinhoodAutoTra
 builder.Services.AddSingleton<AutoTradingService>();
 builder.Services.AddSingleton<EvmWalletService>();
 builder.Services.AddSingleton<TokenSettingsService>();
+builder.Services.AddSingleton<LinkTokenSettingsService>();
 builder.Services.AddSingleton<TokenPreviewService>();
 builder.Services.AddSingleton<TokenCreationService>();
 builder.Services.AddSingleton<PostNotificationService>();

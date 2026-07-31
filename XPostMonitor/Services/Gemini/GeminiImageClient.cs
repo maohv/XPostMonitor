@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using XPostMonitor.Configuration;
+using XPostMonitor.Services.ImageGeneration;
 
 namespace XPostMonitor.Services.Gemini;
 
@@ -47,12 +48,15 @@ public sealed class GeminiImageClient
             throw new InvalidOperationException("Gemini image generation is not configured.");
         }
 
+        string prompt = BuildPrompt(imagePrompt, chainImageStyle, characterImageBase64, chainLogoBase64);
+        await ImageGenerationDiagnosticLog.WriteAsync("Gemini", options.ImageModel, prompt);
+
         List<object> input = new List<object>
         {
             new
             {
                 type = "text",
-                text = BuildPrompt(imagePrompt, chainImageStyle, characterImageBase64, chainLogoBase64)
+                text = prompt
             }
         };
 
@@ -87,7 +91,9 @@ public sealed class GeminiImageClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException("Gemini image failed: " + ReadError(json));
+            string error = ReadError(json);
+            await ImageGenerationDiagnosticLog.WriteAsync("Gemini error", options.ImageModel, error);
+            throw new InvalidOperationException("Gemini image failed: " + error);
         }
 
         return ReadImage(json);
@@ -122,30 +128,23 @@ public sealed class GeminiImageClient
         bool hasLogo = !string.IsNullOrWhiteSpace(chainLogoBase64);
 
         string referenceInstruction = hasCharacter
-            ? "Image 1 is the exact identity reference for the main person. Preserve the same recognizable face shape, eyes, "
-                + "eyebrows, nose, mouth, smile, hairstyle, hairline, glasses, skin tone, and visible facial marks. "
-                + "Convert that same person into chibi style; never replace them with a generic face. "
+            ? "Image 1 is the identity reference. Make the same recognizable person chibi. Keep the face shape, eyes, eyebrows, nose, mouth, "
+                + "hair, skin tone, glasses, moles, and facial marks. No generic face or new face-covering accessories. "
             : string.Empty;
 
         if (hasLogo)
         {
             string logoNumber = hasCharacter ? "Image 2" : "Image 1";
             referenceInstruction += logoNumber
-                + " is only the exact launch-chain logo. Reproduce it accurately exactly once on one suitable physical object. "
-                + "Do not let the logo reference change the character, clothing, scene, or art style. ";
+                + " is the chain logo. Reproduce it accurately once on one scene object. ";
         }
 
         return referenceInstruction
-            + "Create this Post-specific scene: " + imagePrompt + ". "
+            + "Scene: " + imagePrompt + ". "
             + (string.IsNullOrWhiteSpace(chainImageStyle) ? string.Empty : chainImageStyle + " ")
-            + "Create a centered full-body true chibi mascot with an oversized rounded head occupying 45-50% of the total height, "
-            + "a small compact body, short rounded arms and legs, tiny shoes, expressive eyes, and natural hands. "
-            + "Use a polished playful 2D editorial-cartoon illustration, premium mascot design, clean vector-inspired shapes, "
-            + "thick smooth dark-brown outlines, rounded contours, warm pastel colors, flat colors, simple two-tone cel shading, "
-            + "minimal gradients, soft highlights, subtle ambient shadows, and gentle paper grain. "
-            + "Use a simple warm cream and light-beige background with enough empty space. Square composition, clear at thumbnail size. "
-            + "No text, letters, numbers, pseudo-text, captions, signs, documents, screens, watermark, photorealism, 3D rendering, "
-            + "malformed hands, extra fingers, missing fingers, or duplicated limbs.";
+            + "One centered full-body true chibi: large head, tiny body, fully clothed in a scene-appropriate outfit. "
+            + "Use at most two key props and a minimal cream background. Clean 2D vector style, dark-brown outlines, warm pastels, "
+            + "flat two-tone shading, subtle grain. No text, watermark, photo, 3D, nudity, or anatomy errors.";
     }
 
     private static byte[] ReadImage(string json)

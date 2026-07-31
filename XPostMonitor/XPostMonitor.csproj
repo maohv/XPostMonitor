@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Update="appsettings.Development.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
     <Content Update="Localization\*.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\ChainLogos\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\CharacterReferences\*.png" CopyToOutputDirectory="PreserveNewest" />

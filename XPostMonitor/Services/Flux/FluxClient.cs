@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Text.Json;
 using XPostMonitor.Configuration;
 using XPostMonitor.Dtos;
+using XPostMonitor.Services.ImageGeneration;
 
 namespace XPostMonitor.Services.Flux;
 
@@ -196,6 +197,8 @@ public sealed class FluxClient
     private async Task<FluxImageDto> GenerateAsync(string prompt, string? imageUrl,
         string? characterImageBase64, string? chainLogoBase64, CancellationToken cancellationToken)
     {
+        await ImageGenerationDiagnosticLog.WriteAsync("FLUX", options.ModelEndpoint, prompt);
+
         Dictionary<string, object> requestBody = new Dictionary<string, object>
         {
             ["prompt"] = prompt,
