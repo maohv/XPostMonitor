@@ -4,6 +4,7 @@ using XPostMonitor.Configuration;
 using XPostMonitor.Data;
 using XPostMonitor.Services;
 using XPostMonitor.Services.ArcBridge;
+using XPostMonitor.Services.BinanceAlpha;
 using XPostMonitor.Services.Flux;
 using XPostMonitor.Services.Gemini;
 using XPostMonitor.Services.Gmgn;
@@ -122,6 +123,12 @@ arcBridgeOptions.PollIntervalSeconds = Math.Max(1, arcBridgeOptions.PollInterval
 arcBridgeOptions.PollTimeoutMinutes = Math.Max(1, arcBridgeOptions.PollTimeoutMinutes);
 builder.Services.AddSingleton(arcBridgeOptions);
 
+BinanceAlphaOptions binanceAlphaOptions = new BinanceAlphaOptions();
+builder.Configuration.GetSection(BinanceAlphaOptions.SectionName).Bind(binanceAlphaOptions);
+binanceAlphaOptions.RestCheckIntervalSeconds = Math.Max(5,
+    binanceAlphaOptions.RestCheckIntervalSeconds);
+builder.Services.AddSingleton(binanceAlphaOptions);
+
 builder.Services.AddHttpClient<XApiClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.x.com/");
@@ -188,6 +195,12 @@ builder.Services.AddHttpClient<PonsRobinhoodClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+builder.Services.AddHttpClient("FlapCatalog", client =>
+{
+    client.BaseAddress = new Uri("https://flap.sh/");
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
+
 builder.Services.AddHttpClient<ZImageClient>(client =>
 {
     client.BaseAddress = new Uri("https://fal.run/");
@@ -198,6 +211,12 @@ builder.Services.AddHttpClient<ArcBridgeClient>(client =>
 {
     client.BaseAddress = new Uri("https://dyorarc.fun/");
     client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient<BinanceAlphaClient>(client =>
+{
+    client.BaseAddress = new Uri("https://www.binance.com/");
+    client.Timeout = TimeSpan.FromSeconds(15);
 });
 
 // Các service xử lý chức năng thông thường.
@@ -227,6 +246,7 @@ builder.Services.AddSingleton<TokenSettingsService>();
 builder.Services.AddSingleton<LinkTokenSettingsService>();
 builder.Services.AddSingleton<TokenPreviewService>();
 builder.Services.AddSingleton<TokenCreationService>();
+builder.Services.AddSingleton<FlapRwaCatalogService>();
 builder.Services.AddSingleton<PostNotificationService>();
 builder.Services.AddSingleton<TelegramNotificationService>();
 
@@ -236,6 +256,8 @@ builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequired
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutoTradingService>());
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PostNotificationService>());
 builder.Services.AddHostedService<ApiHealthMonitorService>();
+builder.Services.AddHostedService<BinanceAlphaMonitorService>();
+builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<FlapRwaCatalogService>());
 if (botOptions.EnableXMonitoring)
 {
     builder.Services.AddHostedService<XRuleSyncService>();

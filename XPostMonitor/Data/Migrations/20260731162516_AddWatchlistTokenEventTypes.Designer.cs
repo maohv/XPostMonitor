@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using XPostMonitor.Data;
 
@@ -11,9 +12,11 @@ using XPostMonitor.Data;
 namespace XPostMonitor.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260731162516_AddWatchlistTokenEventTypes")]
+    partial class AddWatchlistTokenEventTypes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -251,63 +254,6 @@ namespace XPostMonitor.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("AutoTradeOrders");
-                });
-
-            modelBuilder.Entity("XPostMonitor.Models.BinanceAlphaToken", b =>
-                {
-                    b.Property<string>("TokenId")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("AlphaId")
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("ChainId")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("ChainName")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("ContractAddress")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<DateTime>("FirstSeenAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("IconUrl")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTime?>("ListingTimeUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<DateTime?>("NotifiedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Symbol")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.HasKey("TokenId");
-
-                    b.HasIndex("NotifiedAtUtc");
-
-                    b.HasIndex("ChainId", "ContractAddress");
-
-                    b.ToTable("BinanceAlphaTokens");
                 });
 
             modelBuilder.Entity("XPostMonitor.Models.LinkTokenSettings", b =>

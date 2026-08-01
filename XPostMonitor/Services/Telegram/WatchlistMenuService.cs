@@ -258,7 +258,8 @@ public sealed class WatchlistMenuService
             int workerCount = values.Length == 6 && int.TryParse(values[5], out int selectedCount)
                 ? Math.Clamp(selectedCount, 1, workerOptions.MaxWorkers) : 1;
             string reply = await watchlistService.AddAsync(chatId, username, selectedChain, selectedDex,
-                selectedAnchor, creatorTaxPercent, enableAutoTrading, workerCount, language, cancellationToken);
+                selectedAnchor, creatorTaxPercent, enableAutoTrading, workerCount,
+                null, null, null, null, language, cancellationToken);
             await telegramApi.SendMessageAsync(chatId, reply, cancellationToken);
         }
     }
@@ -282,7 +283,11 @@ public sealed class WatchlistMenuService
             Anchor = current.Anchor,
             CreatorTaxPercent = current.CreatorTaxPercent,
             EnableAutoTrading = current.EnableAutoTrading,
-            WorkerCount = Math.Clamp(current.WorkerCount, 1, workerOptions.MaxWorkers)
+            WorkerCount = Math.Clamp(current.WorkerCount, 1, workerOptions.MaxWorkers),
+            CreateTokenOnPost = current.CreateTokenOnPost,
+            CreateTokenOnReply = current.CreateTokenOnReply,
+            CreateTokenOnQuote = current.CreateTokenOnQuote,
+            CreateTokenOnRepost = current.CreateTokenOnRepost
         };
         editSelections[(chatId, current.Username.ToLowerInvariant())] = selection;
         await ShowEditPanelAsync(chatId, current.Username, selection, language, cancellationToken);
@@ -339,7 +344,8 @@ public sealed class WatchlistMenuService
 
             string reply = await watchlistService.AddAsync(chatId, username, selection.Chain, selection.Dex,
                 selection.Anchor, selection.CreatorTaxPercent ?? 0, selection.EnableAutoTrading,
-                selection.WorkerCount, language, cancellationToken);
+                selection.WorkerCount, selection.CreateTokenOnPost, selection.CreateTokenOnReply,
+                selection.CreateTokenOnQuote, selection.CreateTokenOnRepost, language, cancellationToken);
             editSelections.TryRemove((chatId, keyUsername), out _);
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             await telegramApi.SendMessageAsync(chatId, reply, cancellationToken);
@@ -403,6 +409,13 @@ public sealed class WatchlistMenuService
         {
             selection.WorkerCount = workerCount;
         }
+        else if (value[0] == "e" && selection.Chain != null)
+        {
+            if (value[1] == "post") selection.CreateTokenOnPost = !selection.CreateTokenOnPost;
+            if (value[1] == "reply") selection.CreateTokenOnReply = !selection.CreateTokenOnReply;
+            if (value[1] == "quote") selection.CreateTokenOnQuote = !selection.CreateTokenOnQuote;
+            if (value[1] == "repost") selection.CreateTokenOnRepost = !selection.CreateTokenOnRepost;
+        }
 
         await ShowEditPanelAsync(chatId, username, selection, language, cancellationToken,
             messageId: messageId);
@@ -438,9 +451,17 @@ public sealed class WatchlistMenuService
         }
         if (selection.Chain != null)
         {
+            List<string> selectedEvents = [];
+            if (selection.CreateTokenOnPost) selectedEvents.Add(text.Get(language, "PostEvent"));
+            if (selection.CreateTokenOnReply) selectedEvents.Add(text.Get(language, "ReplyEvent"));
+            if (selection.CreateTokenOnQuote) selectedEvents.Add(text.Get(language, "QuoteEvent"));
+            if (selection.CreateTokenOnRepost) selectedEvents.Add(text.Get(language, "RepostEvent"));
+
             message += text.Get(language, "AutoTrading") + ": "
                 + text.Get(language, selection.EnableAutoTrading ? "Enabled" : "Disabled") + "\n"
-                + text.Get(language, "TokensPerPost") + ": " + selection.WorkerCount;
+                + text.Get(language, "TokensPerPost") + ": " + selection.WorkerCount + "\n"
+                + text.Get(language, "TokenEvents") + ": "
+                + (selectedEvents.Count == 0 ? text.Get(language, "NotSet") : string.Join(", ", selectedEvents));
         }
 
         List<IReadOnlyList<TelegramInlineButton>> buttons =
@@ -507,6 +528,20 @@ public sealed class WatchlistMenuService
                 .Select(count => new TelegramInlineButton(
                     Mark(count == selection.WorkerCount, text.Get(language, "Worker") + " x" + count),
                     "watch:panel:" + username + ":w=" + count)).ToList());
+            buttons.Add(
+            [
+                new TelegramInlineButton(Mark(selection.CreateTokenOnPost, text.Get(language, "PostEvent")),
+                    "watch:panel:" + username + ":e=post"),
+                new TelegramInlineButton(Mark(selection.CreateTokenOnReply, text.Get(language, "ReplyEvent")),
+                    "watch:panel:" + username + ":e=reply")
+            ]);
+            buttons.Add(
+            [
+                new TelegramInlineButton(Mark(selection.CreateTokenOnQuote, text.Get(language, "QuoteEvent")),
+                    "watch:panel:" + username + ":e=quote"),
+                new TelegramInlineButton(Mark(selection.CreateTokenOnRepost, text.Get(language, "RepostEvent")),
+                    "watch:panel:" + username + ":e=repost")
+            ]);
         }
         buttons.Add(
         [
@@ -533,7 +568,9 @@ public sealed class WatchlistMenuService
             && LaunchpadCatalog.IsValidRoute(selection.Chain, selection.Dex, selection.Anchor)
             && selection.CreatorTaxPercent.HasValue
             && LaunchpadCatalog.IsValidCreatorTax(selection.Dex, selection.CreatorTaxPercent.Value)
-            && selection.WorkerCount > 0;
+            && selection.WorkerCount > 0
+            && (selection.CreateTokenOnPost || selection.CreateTokenOnReply
+                || selection.CreateTokenOnQuote || selection.CreateTokenOnRepost);
     }
 
     private static string Mark(bool selected, string label)
@@ -694,5 +731,9 @@ public sealed class WatchlistMenuService
         public int? CreatorTaxPercent { get; set; }
         public bool EnableAutoTrading { get; set; }
         public int WorkerCount { get; set; } = 1;
+        public bool CreateTokenOnPost { get; set; } = true;
+        public bool CreateTokenOnReply { get; set; } = true;
+        public bool CreateTokenOnQuote { get; set; } = true;
+        public bool CreateTokenOnRepost { get; set; }
     }
 }

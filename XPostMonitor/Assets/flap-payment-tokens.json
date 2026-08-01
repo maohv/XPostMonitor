@@ -1,0 +1,44 @@
+[
+  {
+    "Code": "BNB",
+    "DisplayName": "BNB",
+    "TokenAddress": "0x0000000000000000000000000000000000000000",
+    "Decimals": 18
+  },
+  {
+    "Code": "SPCXB",
+    "DisplayName": "SPCXB - SpaceX",
+    "TokenAddress": "0xbe9D156892E55e7154BcD3cB0FEA677F9D3103E1",
+    "Decimals": 18
+  },
+  {
+    "Code": "SKHYB",
+    "DisplayName": "SKHYB - SK Hynix",
+    "TokenAddress": "0xCA750eF65f295BBECd685Abf54e82CAf297BDB61",
+    "Decimals": 18
+  },
+  {
+    "Code": "SPYB",
+    "DisplayName": "SPYB - SPY",
+    "TokenAddress": "0x7138b48df7D98D7e3cc221BfE7192D0a178182D8",
+    "Decimals": 18
+  },
+  {
+    "Code": "XAUT",
+    "DisplayName": "XAUT - Tether Gold",
+    "TokenAddress": "0x21cAef8A43163Eea865baeE23b9C2E327696A3bf",
+    "Decimals": 6
+  },
+  {
+    "Code": "QQQB",
+    "DisplayName": "QQQB - Invesco QQQ",
+    "TokenAddress": "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+    "Decimals": 18
+  },
+  {
+    "Code": "NVDAB",
+    "DisplayName": "NVDAB - NVIDIA",
+    "TokenAddress": "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436",
+    "Decimals": 18
+  }
+]

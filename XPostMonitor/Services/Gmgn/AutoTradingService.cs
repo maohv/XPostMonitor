@@ -155,15 +155,8 @@ public sealed class AutoTradingService : BackgroundService
                 .WaitAsync(cancellationToken)).Value;
             if (latestBlock >= nextBlock)
             {
-                NewFilterInput filter = new NewFilterInput
-                {
-                    Address = [request.TokenAddress],
-                    FromBlock = new BlockParameter(new HexBigInteger(nextBlock)),
-                    ToBlock = new BlockParameter(new HexBigInteger(latestBlock)),
-                    Topics = [TransferTopic]
-                };
-                FilterLog[] logs = await web3.Eth.Filters.GetLogs.SendRequestAsync(filter)
-                    .WaitAsync(cancellationToken);
+                FilterLog[] logs = await GetTokenTransferLogsAsync(web3, request, nextBlock,
+                    latestBlock, cancellationToken);
                 foreach (FilterLog log in logs)
                 {
                     if (TryReadExternalBuyer(log, request.WalletAddress, request.LaunchTransactionHash,
@@ -211,6 +204,43 @@ public sealed class AutoTradingService : BackgroundService
         BigInteger latestBlock = (await web3.Eth.Blocks.GetBlockNumber.SendRequestAsync()
             .WaitAsync(cancellationToken)).Value;
         return BigInteger.Max(BigInteger.Zero, latestBlock - 100);
+    }
+
+    // Public RPC của BSC đã tắt eth_getLogs. Vì vậy BSC đọc receipt của từng block rồi tự lọc log.
+    // Các chain khác vẫn giữ cách cũ để không làm thay đổi luồng Robinhood và Stable.
+    private static async Task<FilterLog[]> GetTokenTransferLogsAsync(Web3 web3,
+        AutoTradingRequest request, BigInteger fromBlock, BigInteger toBlock,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(request.Chain, "bsc", StringComparison.OrdinalIgnoreCase))
+        {
+            NewFilterInput filter = new NewFilterInput
+            {
+                Address = [request.TokenAddress],
+                FromBlock = new BlockParameter(new HexBigInteger(fromBlock)),
+                ToBlock = new BlockParameter(new HexBigInteger(toBlock)),
+                Topics = [TransferTopic]
+            };
+            return await web3.Eth.Filters.GetLogs.SendRequestAsync(filter)
+                .WaitAsync(cancellationToken);
+        }
+
+        List<FilterLog> tokenLogs = new List<FilterLog>();
+        for (BigInteger block = fromBlock; block <= toBlock; block++)
+        {
+            TransactionReceipt[] receipts = await web3.Eth.Blocks.GetBlockReceiptsByNumber
+                .SendRequestAsync(new HexBigInteger(block)).WaitAsync(cancellationToken);
+            foreach (FilterLog log in receipts.SelectMany(receipt => receipt.Logs ?? []))
+            {
+                string firstTopic = log.Topics?.FirstOrDefault()?.ToString() ?? string.Empty;
+                if (string.Equals(log.Address, request.TokenAddress, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(firstTopic, TransferTopic, StringComparison.OrdinalIgnoreCase))
+                {
+                    tokenLogs.Add(log);
+                }
+            }
+        }
+        return tokenLogs.ToArray();
     }
 
     private static bool TryReadExternalBuyer(FilterLog log, string walletAddress,
@@ -399,15 +429,8 @@ public sealed class AutoTradingService : BackgroundService
                 .WaitAsync(cancellationToken)).Value;
             if (latestBlock >= nextBlock)
             {
-                NewFilterInput filter = new NewFilterInput
-                {
-                    Address = [request.TokenAddress],
-                    FromBlock = new BlockParameter(new HexBigInteger(nextBlock)),
-                    ToBlock = new BlockParameter(new HexBigInteger(latestBlock)),
-                    Topics = [TransferTopic]
-                };
-                FilterLog[] logs = await web3.Eth.Filters.GetLogs.SendRequestAsync(filter)
-                    .WaitAsync(cancellationToken);
+                FilterLog[] logs = await GetTokenTransferLogsAsync(web3, request, nextBlock,
+                    latestBlock, cancellationToken);
                 foreach (FilterLog log in logs)
                 {
                     if (IsWorkerSellTransfer(log, request.WalletAddress,
@@ -525,15 +548,8 @@ public sealed class AutoTradingService : BackgroundService
                 .WaitAsync(cancellationToken)).Value;
             if (latestBlock >= nextBlock)
             {
-                NewFilterInput filter = new NewFilterInput
-                {
-                    Address = [request.TokenAddress],
-                    FromBlock = new BlockParameter(new HexBigInteger(nextBlock)),
-                    ToBlock = new BlockParameter(new HexBigInteger(latestBlock)),
-                    Topics = [TransferTopic]
-                };
-                FilterLog[] logs = await web3.Eth.Filters.GetLogs.SendRequestAsync(filter)
-                    .WaitAsync(cancellationToken);
+                FilterLog[] logs = await GetTokenTransferLogsAsync(web3, request, nextBlock,
+                    latestBlock, cancellationToken);
                 foreach (FilterLog log in logs)
                 {
                     if (!TryReadExternalBuyer(log, request.WalletAddress,
@@ -1022,13 +1038,27 @@ public sealed class AutoTradingService : BackgroundService
 
             if (trade.Orders.All(item => item.Status != "open"))
             {
+                List<AutoTradeOrder> filledOrders = trade.Orders
+                    .Where(item => item.Status == "filled").ToList();
+
+                // Khi luồng bán hết hủy các lệnh TP, luồng kiểm tra GMGN có thể chạy cùng lúc.
+                // Không gửi nhầm thông báo "đã bán 0%"; luồng bán hết sẽ tự gửi kết quả chính xác.
+                if (filledOrders.Count == 0)
+                {
+                    if (trade.Orders.All(item => item.Status == "failed"))
+                    {
+                        trade.Status = "failed";
+                        trade.CompletedAtUtc = DateTime.UtcNow;
+                        await db.SaveChangesAsync(cancellationToken);
+                    }
+                    continue;
+                }
+
                 trade.Status = "completed";
                 trade.CompletedAtUtc = DateTime.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
-                decimal totalProfit = trade.Orders.Where(item => item.Status == "filled")
-                    .Sum(item => item.RealizedProfitUsd ?? 0m);
-                decimal soldPercent = trade.Orders.Where(item => item.Status == "filled")
-                    .Sum(item => item.SellPercent);
+                decimal totalProfit = filledOrders.Sum(item => item.RealizedProfitUsd ?? 0m);
+                decimal soldPercent = filledOrders.Sum(item => item.SellPercent);
                 string language = BotTextService.Normalize(trade.TelegramUser.LanguageCode);
                 await telegramApi.SendMessageAsync(trade.ChatId,
                     text.Get(language, "AutoTradingCompleted", trade.TokenSymbol, soldPercent, totalProfit),

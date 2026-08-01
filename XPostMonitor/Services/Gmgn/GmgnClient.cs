@@ -417,7 +417,7 @@ public sealed class GmgnClient
     {
         await RunAsync(
             ["order", "strategy", "cancel", "--chain", chain, "--from", walletAddress,
-             "--order-id", orderId, "--order-type", "limit_order", "--yes", "--raw"],
+             "--order-id", orderId, "--order-type", "limit_order", "--raw"],
             credentials.ApiKey, credentials.PrivateKey, true, cancellationToken);
     }
 

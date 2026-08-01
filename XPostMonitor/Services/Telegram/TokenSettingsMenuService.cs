@@ -5,6 +5,7 @@ using XPostMonitor.Dtos;
 using XPostMonitor.Services.Launchpads;
 using XPostMonitor.Services.Launchpads.DyorStable;
 using XPostMonitor.Services.Launchpads.FourMeme;
+using XPostMonitor.Services.Launchpads.Flap;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Telegram.Localization;
 using XPostMonitor.Services.Wallets;
@@ -21,6 +22,7 @@ public sealed class TokenSettingsMenuService
     private readonly FourMemeClient fourMemeClient;
     private readonly DyorStableClient dyorStableClient;
     private readonly LongRobinhoodClient longRobinhoodClient;
+    private readonly FlapRwaCatalogService flapRwaCatalog;
     private readonly BotTextService text;
     private readonly TradingWorkersOptions workerOptions;
     // Lưu tạm loại dữ liệu mà bot đang chờ user gửi: số tiền hoặc private key.
@@ -28,7 +30,8 @@ public sealed class TokenSettingsMenuService
 
     public TokenSettingsMenuService(TelegramApiClient telegramApi, TokenSettingsService tokenSettings,
         PremiumService premiumService, EvmWalletService evmWalletService, FourMemeClient fourMemeClient,
-        DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient, BotTextService text,
+        DyorStableClient dyorStableClient, LongRobinhoodClient longRobinhoodClient,
+        FlapRwaCatalogService flapRwaCatalog, BotTextService text,
         TradingWorkersOptions workerOptions)
     {
         this.telegramApi = telegramApi;
@@ -38,6 +41,7 @@ public sealed class TokenSettingsMenuService
         this.fourMemeClient = fourMemeClient;
         this.dyorStableClient = dyorStableClient;
         this.longRobinhoodClient = longRobinhoodClient;
+        this.flapRwaCatalog = flapRwaCatalog;
         this.text = text;
         this.workerOptions = workerOptions;
     }
@@ -57,7 +61,10 @@ public sealed class TokenSettingsMenuService
             [new TelegramInlineButton(text.Get(language, "GmgnAndAutoTrading"), "trading:show")],
             [new TelegramInlineButton(text.Get(language, "DefaultBuyAmounts"), "settings:amounts")]
         ];
-        buttons.Add([new TelegramInlineButton(text.Get(language, "LinkAutoSettings"), "linkauto:show")]);
+        buttons.Add([
+            new TelegramInlineButton(text.Get(language, "LinkAutoSettings"), "linkauto:show"),
+            new TelegramInlineButton(text.Get(language, "UpdateFlapRwa"), "settings:flaprwa")
+        ]);
         buttons.Add(CloseButtons(language)[0]);
         await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
@@ -149,9 +156,31 @@ public sealed class TokenSettingsMenuService
                 await CheckLongRobinhoodAsync(chatId, language, cancellationToken);
                 return;
 
+            case "flaprwa":
+                await UpdateFlapRwaAsync(chatId, language, cancellationToken);
+                return;
+
             case "back":
                 await ShowAsync(chatId, cancellationToken);
                 return;
+        }
+    }
+
+    private async Task UpdateFlapRwaAsync(long chatId, string language,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            IReadOnlyList<string> updated = await flapRwaCatalog.CheckAndUpdateAsync(cancellationToken);
+            string notice = updated.Count == 0
+                ? text.Get(language, "FlapRwaNoUpdate")
+                : text.Get(language, "FlapRwaUpdated", string.Join(", ", updated));
+            await ShowAsync(chatId, cancellationToken, notice);
+        }
+        catch (Exception exception)
+        {
+            await ShowAsync(chatId, cancellationToken,
+                text.Get(language, "FlapRwaUpdateFailed", exception.Message));
         }
     }
 

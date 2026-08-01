@@ -298,7 +298,12 @@ public sealed class TelegramBotService : BackgroundService
     private async Task HandleCallbackAsync(TelegramCallbackQuery callback, CancellationToken cancellationToken)
     {
         await telegramApi.AnswerCallbackAsync(callback.Id, cancellationToken);
-        if (callback.Message?.Chat.Type != "private" || string.IsNullOrWhiteSpace(callback.Data))
+        if (callback.Message == null || string.IsNullOrWhiteSpace(callback.Data))
+        {
+            return;
+        }
+
+        if (callback.Message.Chat.Type != "private")
         {
             return;
         }

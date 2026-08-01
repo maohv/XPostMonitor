@@ -199,6 +199,21 @@ public sealed class FlapClient
         return new FlapTokenResult(receipt.TransactionHash, tokenAddress, transactionValue, gas.Value, false, true);
     }
 
+    // Kiểm tra RWA có đang bật và Flap có hỗ trợ đổi BNB sang RWA đó hay không.
+    // Không ký, không gửi giao dịch và không sử dụng tiền trong ví.
+    public async Task<bool> SupportsBnbPurchaseAsync(string quoteToken, CancellationToken cancellationToken)
+    {
+        if (string.Equals(quoteToken, ZeroAddress, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        Web3 web3 = new Web3(options.RpcUrl);
+        QuoteTokenConfiguration configuration = await GetQuoteTokenConfigurationAsync(web3, quoteToken,
+            cancellationToken);
+        return configuration.Enabled != 0 && configuration.NativeToQuoteSwapType != 0;
+    }
+
     // Tạo RWA không mua trước, sau đó mua ngay bằng BNB trong cùng private bundle.
     // Hai transaction vẫn do chính ví Worker ký nên token mua được nằm thẳng trong Worker.
     private async Task<FlapTokenResult> CreateRwaTokenWithBnbAsync(Web3 web3, Account account,
@@ -317,8 +332,8 @@ public sealed class FlapClient
         {
             Params = new NewTokenV6Params
             {
-                Name = Clean(request.Name, 100),
-                Symbol = Clean(request.Symbol, 20),
+                Name = CleanTokenText(request.Name, 100),
+                Symbol = CleanTokenText(request.Symbol, 20),
                 Meta = metadata,
                 DexThresh = 1,
                 Salt = vanity.Salt,
@@ -567,6 +582,23 @@ public sealed class FlapClient
             throw new InvalidOperationException("Flap token name and symbol cannot be empty.");
         }
         return clean.Length <= maximumLength ? clean : clean[..maximumLength];
+    }
+
+    // Giữ nguyên nội dung, emoji và ký tự đặc biệt; chỉ chuẩn hóa dấu nháy kiểu Word.
+    private static string CleanTokenText(string value, int maximumLength)
+    {
+        string normalized = value
+            // Flap bị revert với emoji có ký tự biến thể ẩn, ví dụ ⚽️ = ⚽ + U+FE0F.
+            // Chỉ bỏ phần ẩn, vẫn giữ nguyên emoji quả bóng và các ký tự có ý nghĩa.
+            .Replace("\uFE0E", string.Empty)
+            .Replace("\uFE0F", string.Empty)
+            .Replace("‘", "'")
+            .Replace("’", "'")
+            .Replace("“", "\"")
+            .Replace("”", "\"")
+            .Replace("＇", "'")
+            .Replace("＂", "\"");
+        return Clean(normalized, maximumLength);
     }
 
     private static string Shorten(string value)

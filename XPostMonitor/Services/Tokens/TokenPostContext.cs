@@ -71,6 +71,26 @@ public static class TokenPostContext
             return "[POST_TYPE=reply]\n[REPLY]\nText: " + post.Text.Trim();
         }
 
+        if (reference?.Type == "retweeted")
+        {
+            XStreamIncludes repostIncludes = response.Includes ?? new XStreamIncludes();
+            XPost? repostedPost = repostIncludes.Posts?.FirstOrDefault(item => item.Id == reference.Id);
+            if (repostedPost == null)
+            {
+                return post.Text;
+            }
+
+            StringBuilder repostInput = new StringBuilder()
+                .AppendLine("[POST_TYPE=repost]");
+            string? repostedBy = GetAuthorUsername(response);
+            if (!string.IsNullOrWhiteSpace(repostedBy))
+            {
+                repostInput.Append("Reposted by: @").AppendLine(repostedBy);
+            }
+            AppendPost(repostInput, "REPOSTED_POST", repostedPost, repostIncludes);
+            return repostInput.ToString().Trim();
+        }
+
         if (reference?.Type != "quoted")
         {
             return post.Text;

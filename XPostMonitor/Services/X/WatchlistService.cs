@@ -30,8 +30,9 @@ public sealed class WatchlistService
 
     // Kiểm tra username trên X rồi thêm tài khoản vào watchlist của Telegram user.
     public async Task<string> AddAsync(long chatId, string? username, string? chain, string? dex, string? anchor,
-        int creatorTaxPercent, bool enableAutoTrading, int parallelTokenCount, string language,
-        CancellationToken cancellationToken)
+        int creatorTaxPercent, bool enableAutoTrading, int parallelTokenCount,
+        bool? createTokenOnPost, bool? createTokenOnReply, bool? createTokenOnQuote,
+        bool? createTokenOnRepost, string language, CancellationToken cancellationToken)
     {
         username = username?.Trim().TrimStart('@');
         if (!IsValidXUsername(username))
@@ -85,6 +86,10 @@ public sealed class WatchlistService
                 existingEntry.CreatorTaxPercent = creatorTaxPercent;
                 existingEntry.EnableAutoTrading = enableAutoTrading;
                 existingEntry.ParallelTokenCount = parallelTokenCount;
+                existingEntry.CreateTokenOnPost = createTokenOnPost ?? existingEntry.CreateTokenOnPost;
+                existingEntry.CreateTokenOnReply = createTokenOnReply ?? existingEntry.CreateTokenOnReply;
+                existingEntry.CreateTokenOnQuote = createTokenOnQuote ?? existingEntry.CreateTokenOnQuote;
+                existingEntry.CreateTokenOnRepost = createTokenOnRepost ?? existingEntry.CreateTokenOnRepost;
                 existingEntry.XAccount.Username = xUser.Username;
                 existingEntry.XAccount.DisplayName = xUser.Name;
                 existingEntry.XAccount.UpdatedAtUtc = DateTime.UtcNow;
@@ -122,6 +127,10 @@ public sealed class WatchlistService
                 CreatorTaxPercent = creatorTaxPercent,
                 EnableAutoTrading = enableAutoTrading,
                 ParallelTokenCount = parallelTokenCount,
+                CreateTokenOnPost = createTokenOnPost ?? true,
+                CreateTokenOnReply = createTokenOnReply ?? true,
+                CreateTokenOnQuote = createTokenOnQuote ?? true,
+                CreateTokenOnRepost = createTokenOnRepost ?? false,
                 CreatedAtUtc = now
             });
 
@@ -253,7 +262,8 @@ public sealed class WatchlistService
             ? null
             : new WatchlistEditSettings(entry.XAccount.Username, entry.TokenChain, entry.TokenDex,
                 entry.TokenAnchor, entry.CreatorTaxPercent, entry.EnableAutoTrading,
-                entry.ParallelTokenCount);
+                entry.ParallelTokenCount, entry.CreateTokenOnPost, entry.CreateTokenOnReply,
+                entry.CreateTokenOnQuote, entry.CreateTokenOnRepost);
     }
 
     // Username X chỉ được chứa chữ, số, dấu gạch dưới và dài tối đa 15 ký tự.
@@ -302,4 +312,5 @@ public sealed class WatchlistService
 }
 
 public sealed record WatchlistEditSettings(string Username, string? Chain, string? Dex, string? Anchor,
-    int CreatorTaxPercent, bool EnableAutoTrading, int WorkerCount);
+    int CreatorTaxPercent, bool EnableAutoTrading, int WorkerCount, bool CreateTokenOnPost,
+    bool CreateTokenOnReply, bool CreateTokenOnQuote, bool CreateTokenOnRepost);

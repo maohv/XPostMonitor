@@ -751,17 +751,19 @@ public sealed class ManualTokenMenuService
             {
                 return false;
             }
-            if (!IsValidCustomTokenName(tokenNameOverride)
-                || !IsValidCustomTokenSymbol(tokenSymbolOverride))
-            {
-                await telegramApi.SendMessageAsync(message.Chat.Id,
-                    text.Get(language, "CustomTokenNameInvalid"), cancellationToken);
-                return true;
-            }
             linkSettings = await linkTokenSettings.GetAsync(message.Chat.Id, cancellationToken);
             if (linkSettings?.EnableAutoCreate != true)
             {
                 return false;
+            }
+
+            int maximumNameLength = GetMaximumTokenNameLength(linkSettings.Launchpad);
+            if (!IsValidCustomTokenName(tokenNameOverride, maximumNameLength)
+                || !IsValidCustomTokenSymbol(tokenSymbolOverride, linkSettings.Launchpad))
+            {
+                await telegramApi.SendMessageAsync(message.Chat.Id,
+                    text.Get(language, "CustomTokenNameInvalid", maximumNameLength), cancellationToken);
+                return true;
             }
         }
 
@@ -810,14 +812,43 @@ public sealed class ManualTokenMenuService
         return (postId, name, symbol);
     }
 
-    private static bool IsValidCustomTokenName(string? value)
+    private static bool IsValidCustomTokenName(string? value, int maximumLength)
     {
-        return value == null || (value.Length <= 20 && value.Any(char.IsLetterOrDigit));
+        return value == null || (value.Length <= maximumLength
+            && value.Any(character => !char.IsWhiteSpace(character))
+            && value.All(character => !char.IsControl(character)));
     }
 
-    private static bool IsValidCustomTokenSymbol(string? value)
+    // Mỗi launchpad có giới hạn tên khác nhau. Kiểm tra đúng giới hạn để không chặn nhầm tên hợp lệ.
+    private static int GetMaximumTokenNameLength(string launchpad)
     {
-        return value == null || (value.Length is >= 2 and <= 15 && value.All(char.IsLetterOrDigit));
+        return launchpad.ToLowerInvariant() switch
+        {
+            "fourmeme" => 20,
+            "dyorswap" => 60,
+            "long" => 64,
+            _ => 100 // Flap và Pons.
+        };
+    }
+
+    private static bool IsValidCustomTokenSymbol(string? value, string launchpad)
+    {
+        if (value == null)
+        {
+            return true;
+        }
+
+        string symbol = value.Trim().TrimStart('$');
+        if (launchpad.Equals("long", StringComparison.OrdinalIgnoreCase))
+        {
+            string upper = symbol.ToUpperInvariant();
+            return upper.Length is >= 1 and <= 15
+                && upper.All(character => character is >= 'A' and <= 'Z');
+        }
+
+        return symbol.Length is >= 2 and <= 15
+            && symbol.Any(character => !char.IsWhiteSpace(character))
+            && symbol.All(character => !char.IsControl(character));
     }
 
     private int ReadWorkerCount(string action, string[] route)

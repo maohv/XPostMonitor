@@ -28,7 +28,7 @@ public static class LaunchpadCatalog
 
     // Các payment token RWA đang được Flap cho phép tạo token trên BSC.
     // BNB dùng địa chỉ zero vì đây là native token của BSC.
-    public static readonly IReadOnlyList<FlapPaymentToken> FlapBscPaymentTokens =
+    private static FlapPaymentToken[] flapBscPaymentTokens =
     [
         new("BNB", "BNB", "0x0000000000000000000000000000000000000000", 18),
         new("SPCXB", "SPCXB - SpaceX", "0xbe9D156892E55e7154BcD3cB0FEA677F9D3103E1", 18),
@@ -38,6 +38,22 @@ public static class LaunchpadCatalog
         new("QQQB", "QQQB - Invesco QQQ", "0x205812CdBed920aFf76C6580abD681a46D11efc7", 18),
         new("NVDAB", "NVDAB - NVIDIA", "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436", 18)
     ];
+
+    // Service cập nhật RWA chỉ thay cả mảng sau khi đã kiểm tra xong, nên menu đang mở không đọc phải dữ liệu dở dang.
+    public static IReadOnlyList<FlapPaymentToken> FlapBscPaymentTokens =>
+        Volatile.Read(ref flapBscPaymentTokens);
+
+    public static void ReplaceFlapBscPaymentTokens(IEnumerable<FlapPaymentToken> paymentTokens)
+    {
+        FlapPaymentToken[] updated = paymentTokens
+            .GroupBy(item => item.Code, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+        if (updated.Length > 0)
+        {
+            Interlocked.Exchange(ref flapBscPaymentTokens, updated);
+        }
+    }
 
     public static LaunchpadNetwork? Find(string? chain)
     {

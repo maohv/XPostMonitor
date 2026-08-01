@@ -23,6 +23,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<ArcBridgeWallet> ArcBridgeWallets { get; set; } = null!;
     public DbSet<ArcBridgeTransfer> ArcBridgeTransfers { get; set; } = null!;
     public DbSet<LinkTokenSettings> LinkTokenSettings { get; set; } = null!;
+    public DbSet<BinanceAlphaToken> BinanceAlphaTokens { get; set; } = null!;
 
     // Khai báo khóa chính, độ dài cột và quan hệ giữa các bảng.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -56,6 +57,10 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.CreatorTaxPercent).HasDefaultValue(0);
             entity.Property(x => x.EnableAutoTrading).HasDefaultValue(false);
             entity.Property(x => x.ParallelTokenCount).HasDefaultValue(1);
+            entity.Property(x => x.CreateTokenOnPost).HasDefaultValue(true);
+            entity.Property(x => x.CreateTokenOnReply).HasDefaultValue(true);
+            entity.Property(x => x.CreateTokenOnQuote).HasDefaultValue(true);
+            entity.Property(x => x.CreateTokenOnRepost).HasDefaultValue(false);
             entity.HasOne(x => x.TelegramUser).WithMany(x => x.Watchlist).HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.XAccount).WithMany(x => x.Watchers).HasForeignKey(x => x.XUserId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -124,6 +129,21 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(x => new { x.ChatId, x.Status });
             entity.HasOne(x => x.Wallet).WithMany(x => x.Transfers)
                 .HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BinanceAlphaToken>(entity =>
+        {
+            entity.HasKey(x => x.TokenId);
+            entity.Property(x => x.TokenId).HasMaxLength(64);
+            entity.Property(x => x.ChainId).HasMaxLength(32);
+            entity.Property(x => x.ChainName).HasMaxLength(64);
+            entity.Property(x => x.ContractAddress).HasMaxLength(128);
+            entity.Property(x => x.Name).HasMaxLength(128);
+            entity.Property(x => x.Symbol).HasMaxLength(64);
+            entity.Property(x => x.AlphaId).HasMaxLength(32);
+            entity.Property(x => x.IconUrl).HasMaxLength(500);
+            entity.HasIndex(x => new { x.ChainId, x.ContractAddress });
+            entity.HasIndex(x => x.NotifiedAtUtc);
         });
 
         modelBuilder.Entity<UserChainTradingSettings>(entity =>

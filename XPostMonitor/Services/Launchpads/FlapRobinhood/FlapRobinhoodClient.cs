@@ -198,8 +198,8 @@ public sealed class FlapRobinhoodClient
         {
             Params = new NewTokenV6Params
             {
-                Name = Clean(request.Name, 100),
-                Symbol = Clean(request.Symbol, 20),
+                Name = CleanTokenText(request.Name, 100),
+                Symbol = CleanTokenText(request.Symbol, 20),
                 Meta = metadata,
                 DexThresh = 1, // FOUR_FIFTHS: tốt nghiệp khi bán 80% supply.
                 Salt = vanity.Salt,
@@ -343,6 +343,19 @@ public sealed class FlapRobinhoodClient
         }
 
         return clean.Length <= maximumLength ? clean : clean[..maximumLength];
+    }
+
+    // Giữ nguyên nội dung, emoji và ký tự đặc biệt; chỉ chuẩn hóa dấu nháy kiểu Word.
+    private static string CleanTokenText(string value, int maximumLength)
+    {
+        string normalized = value
+            .Replace("‘", "'")
+            .Replace("’", "'")
+            .Replace("“", "\"")
+            .Replace("”", "\"")
+            .Replace("＇", "'")
+            .Replace("＂", "\"");
+        return Clean(normalized, maximumLength);
     }
 
     private static string Shorten(string value)

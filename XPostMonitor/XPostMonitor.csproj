@@ -16,12 +16,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Không đưa bản publish cũ quay ngược vào bản publish mới. -->
+    <Content Remove="publish\**\*" />
     <Content Update="appsettings.Development.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
     <Content Update="Localization\*.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\ChainLogos\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\CharacterReferences\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\CharacterReferences\*.jpg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\CharacterReferences\*.jpeg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="Assets\flap-payment-tokens.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -537,14 +537,11 @@ public sealed class OpenAiClient
     private static string CreateSymbolFromName(string name, string aiSymbol)
     {
         // Ưu tiên mã có ý nghĩa do AI chọn; không tự ghép chữ cái đầu của từng từ.
-        string symbol = new string(aiSymbol
-            .Trim()
-            .TrimStart('$')
-            .Where(char.IsLetterOrDigit)
-            .ToArray())
-            .ToUpperInvariant();
+        string symbol = aiSymbol.Trim().TrimStart('$').ToUpperInvariant();
 
         bool isValidAiSymbol = symbol.Length is >= 2 and <= 15
+            && symbol.Any(character => !char.IsWhiteSpace(character))
+            && symbol.All(character => !char.IsControl(character))
             && symbol is not "AI" and not "COIN" and not "TOKEN";
 
         if (isValidAiSymbol)
@@ -553,13 +550,18 @@ public sealed class OpenAiClient
         }
 
         // Chỉ dùng tên làm phương án dự phòng nếu AI trả về mã không hợp lệ.
-        string fallback = new string(name.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+        string fallback = name.Trim().TrimStart('$').ToUpperInvariant();
+        if (fallback.Length > 15)
+        {
+            int length = char.IsHighSurrogate(fallback[14]) ? 14 : 15;
+            fallback = fallback[..length].Trim();
+        }
         if (fallback.Length is >= 2 and <= 15)
         {
             return fallback;
         }
 
-        throw new JsonException("AI returned a token symbol that must contain 2-15 meaningful characters.");
+        throw new JsonException("AI returned a token symbol that must contain 2-15 visible characters.");
     }
 
     private static string ReadError(string json)

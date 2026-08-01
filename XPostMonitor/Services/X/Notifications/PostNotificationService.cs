@@ -111,16 +111,24 @@ public sealed class PostNotificationService : BackgroundService
 
             string? referenceType = post.ReferencedPosts?.FirstOrDefault()?.Type;
             bool isRepost = referenceType == "retweeted";
+            bool selectedEvent = referenceType switch
+            {
+                "replied_to" => watcher.CreateTokenOnReply,
+                "quoted" => watcher.CreateTokenOnQuote,
+                "retweeted" => watcher.CreateTokenOnRepost,
+                _ => watcher.CreateTokenOnPost
+            };
+            string? tokenPhotoUrl = isRepost ? content.PhotoUrl : content.OwnPhotoUrl;
             bool canCreateToken = watcher.TelegramUser.TradingSettings?.EnableTokenCreation == true
                 && LaunchpadCatalog.IsValidRoute(watcher.TokenChain, watcher.TokenDex, watcher.TokenAnchor)
-                && !isRepost
-                && TokenPostContext.IsMeaningfulReply(postEvent.Response, content.OwnPhotoUrl);
+                && selectedEvent
+                && TokenPostContext.IsMeaningfulReply(postEvent.Response, tokenPhotoUrl);
             if (canCreateToken)
             {
                 string tokenText = TokenPostContext.BuildAiInput(postEvent.Response);
                 await tokenCreationService.QueueAsync(watcher.ChatId, post.Id, account.Username, tokenText,
-                    post.Language, content.OwnPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!,
-                    watcher.TokenAnchor, content.OwnPhotoUrl != null, watcher.CreatorTaxPercent,
+                    post.Language, tokenPhotoUrl, content.PostUrl, watcher.TokenChain!, watcher.TokenDex!,
+                    watcher.TokenAnchor, tokenPhotoUrl != null, watcher.CreatorTaxPercent,
                     watcher.EnableAutoTrading, watcher.ParallelTokenCount, watcher.TelegramUser.LanguageCode,
                     postEvent.ReceivedAt,
                     cancellationToken);
