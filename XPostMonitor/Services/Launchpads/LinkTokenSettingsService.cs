@@ -22,7 +22,7 @@ public sealed class LinkTokenSettingsService
         LinkTokenSettings? item = await db.LinkTokenSettings.AsNoTracking()
             .SingleOrDefaultAsync(item => item.ChatId == chatId, cancellationToken);
         return item == null ? null : new LinkTokenConfiguration(item.EnableAutoCreate, item.Chain,
-            item.Launchpad, item.Anchor, item.CreatorTaxPercent, item.EnableAutoTrading,
+            item.Launchpad, item.Anchor, item.CreatorTaxPercent, item.FlapHolderPercent, item.EnableAutoTrading,
             ParseWorkerSlots(item.WorkerSlots), item.BuyAmount, item.SlippagePercent);
     }
 
@@ -44,6 +44,7 @@ public sealed class LinkTokenSettingsService
         entity.Launchpad = settings.Launchpad;
         entity.Anchor = settings.Anchor;
         entity.CreatorTaxPercent = settings.CreatorTaxPercent;
+        entity.FlapHolderPercent = Math.Clamp(settings.FlapHolderPercent, 0, 100);
         entity.EnableAutoTrading = settings.EnableAutoTrading;
         entity.WorkerSlots = string.Join(',', settings.WorkerSlots.Distinct().OrderBy(slot => slot));
         entity.BuyAmount = settings.BuyAmount;
@@ -65,5 +66,6 @@ public sealed class LinkTokenSettingsService
 }
 
 public sealed record LinkTokenConfiguration(bool EnableAutoCreate, string Chain, string Launchpad,
-    string? Anchor, int CreatorTaxPercent, bool EnableAutoTrading, IReadOnlyList<int> WorkerSlots,
+    string? Anchor, int CreatorTaxPercent, int FlapHolderPercent, bool EnableAutoTrading,
+    IReadOnlyList<int> WorkerSlots,
     decimal BuyAmount, decimal SlippagePercent);

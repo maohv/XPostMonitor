@@ -118,6 +118,42 @@ public sealed class TokenSettingsService
         return text.Get(language, "AmountSaved");
     }
 
+    // LÆ°u hai tá»· lá»‡ Dev/Holders. Chá»‰ lÆ°u Holders Ä‘á»ƒ khÃ´ng bao giá» bá»‹ lá»‡ch tá»•ng 100%.
+    public async Task<string> SaveFlapTaxAllocationAsync(long chatId, string value, string language,
+        CancellationToken cancellationToken)
+    {
+        string[] parts = value.Split([' ', '/', ',', ';'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2
+            || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int devPercent)
+            || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                out int holderPercent)
+            || devPercent < 0 || holderPercent < 0 || devPercent + holderPercent != 100)
+        {
+            return text.Get(language, "InvalidFlapTaxAllocation");
+        }
+
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        UserTradingSettings settings = await GetOrCreateAsync(db, chatId, cancellationToken);
+        settings.FlapHolderPercent = holderPercent;
+        await db.SaveChangesAsync(cancellationToken);
+        return text.Get(language, "FlapTaxAllocationSaved", devPercent, holderPercent);
+    }
+
+    // Má»i luá»“ng táº¡o Flap BSC Ä‘á»u Ä‘á»c cÃ¹ng cáº¥u hÃ¬nh nÃ y.
+    public async Task<FlapTaxAllocation> GetFlapTaxAllocationAsync(long chatId,
+        CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        int holderPercent = await db.UserTradingSettings
+            .Where(item => item.ChatId == chatId)
+            .Select(item => item.FlapHolderPercent)
+            .FirstOrDefaultAsync(cancellationToken);
+        holderPercent = Math.Clamp(holderPercent, 0, 100);
+        return new FlapTaxAllocation(100 - holderPercent, holderPercent);
+    }
+
     public async Task<string> ToggleAutoCreateAsync(long chatId, string language,
         CancellationToken cancellationToken)
     {
@@ -276,3 +312,8 @@ public sealed class TokenSettingsService
 }
 
 public sealed record TokenCreateSettings(decimal BuyAmount, decimal SlippagePercent);
+
+public sealed record FlapTaxAllocation(int DevPercent, int HolderPercent)
+{
+    public static FlapTaxAllocation DevOnly { get; } = new(100, 0);
+}

@@ -5,5 +5,6 @@ public interface ILocalTakeProfitHandler : IAutoTradingLaunchpadHandler
 {
     string LocalOrderPrefix { get; }
 
-    Task<decimal> GetCurrentPriceAsync(string tokenAddress, CancellationToken cancellationToken);
+    Task<decimal> GetCurrentPriceAsync(GmgnCredentials credentials, string tokenAddress,
+        CancellationToken cancellationToken);
 }

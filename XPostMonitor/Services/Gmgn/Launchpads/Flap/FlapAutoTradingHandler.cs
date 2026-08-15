@@ -4,7 +4,8 @@ using XPostMonitor.Configuration;
 
 namespace XPostMonitor.Services.Gmgn.Launchpads.Flap;
 
-public sealed class FlapAutoTradingHandler : IAutoTradingLaunchpadHandler
+// Mọi token Flap dùng chung một luồng TP, không phụ thuộc token thanh toán là BNB, BTCB hay RWA.
+public sealed class FlapAutoTradingHandler : ILocalTakeProfitHandler
 {
     private const string NativeBnbAddress = "0x0000000000000000000000000000000000000000";
     private readonly GmgnClient gmgnClient;
@@ -18,6 +19,7 @@ public sealed class FlapAutoTradingHandler : IAutoTradingLaunchpadHandler
 
     public string GmgnChain => "bsc";
     public string RpcUrl => networks.BscRpcUrl;
+    public string LocalOrderPrefix => "local:flap:";
 
     public bool Supports(string chain, string launchpad)
     {
@@ -36,6 +38,14 @@ public sealed class FlapAutoTradingHandler : IAutoTradingLaunchpadHandler
         CancellationToken cancellationToken)
     {
         return Task.FromResult(NativeBnbAddress);
+    }
+
+    // Giá mua và giá hiện tại đều là USD nên có thể so sánh chung cho mọi payment token của Flap.
+    public Task<decimal> GetCurrentPriceAsync(GmgnCredentials credentials, string tokenAddress,
+        CancellationToken cancellationToken)
+    {
+        return gmgnClient.GetTokenPoolPriceUsdAsync(credentials.ApiKey, GmgnChain, tokenAddress,
+            cancellationToken);
     }
 
     public Task<BigInteger?> GetSellAmountAsync(string walletAddress, string tokenAddress,

@@ -44,12 +44,12 @@ public sealed class PonsAutoTradingHandler : ILocalTakeProfitHandler
             throw new InvalidOperationException("The GMGN wallet does not match the Pons launch wallet.");
         }
 
-        decimal entryPrice = await GetCurrentPriceAsync(tokenAddress, cancellationToken);
+        decimal entryPrice = await GetCurrentPriceAsync(credentials, tokenAddress, cancellationToken);
         return new GmgnTokenPosition(linkedWallet, PonsWethAddress, entryPrice);
     }
 
     // Đọc giá token/WETH trực tiếp từ slot0 của pool Uniswap V3 do Pons tạo.
-    public async Task<decimal> GetCurrentPriceAsync(string tokenAddress,
+    public async Task<decimal> GetCurrentPriceAsync(GmgnCredentials credentials, string tokenAddress,
         CancellationToken cancellationToken)
     {
         Web3 web3 = new Web3(RpcUrl);

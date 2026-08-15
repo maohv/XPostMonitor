@@ -6,4 +6,5 @@ public sealed class AutoTradingOptions
 
     public int NoBuyerTimeoutSeconds { get; set; } = 30;
     public int BuyerInactivitySeconds { get; set; } = 10;
+    public int LocalTakeProfitPollSeconds { get; set; } = 3;
 }

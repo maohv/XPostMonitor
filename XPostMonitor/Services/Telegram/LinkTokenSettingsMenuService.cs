@@ -19,6 +19,7 @@ public sealed class LinkTokenSettingsMenuService
     private readonly TradingWorkersOptions workerOptions;
     private readonly ConcurrentDictionary<long, LinkTokenSelection> selections = new();
     private readonly ConcurrentDictionary<long, bool> waitingForAmount = new();
+    private readonly ConcurrentDictionary<long, bool> waitingForFlapAllocation = new();
 
     public LinkTokenSettingsMenuService(TelegramApiClient telegramApi,
         LinkTokenSettingsService settingsService, PremiumService premiumService,
@@ -52,12 +53,14 @@ public sealed class LinkTokenSettingsMenuService
         {
             selections.TryRemove(chatId, out _);
             waitingForAmount.TryRemove(chatId, out _);
+            waitingForFlapAllocation.TryRemove(chatId, out _);
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             return;
         }
         if (data == "linkauto:back")
         {
             waitingForAmount.TryRemove(chatId, out _);
+            waitingForFlapAllocation.TryRemove(chatId, out _);
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             if (selections.TryGetValue(chatId, out LinkTokenSelection? current))
             {
@@ -79,11 +82,22 @@ public sealed class LinkTokenSettingsMenuService
         string action = data["linkauto:".Length..];
         if (action == "amount")
         {
+            waitingForFlapAllocation.TryRemove(chatId, out _);
             waitingForAmount[chatId] = true;
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             LaunchpadNetwork network = LaunchpadCatalog.Find(selection.Chain)!;
             await telegramApi.SendButtonsAsync(chatId,
                 text.Get(language, "LinkAutoSendAmount", network.Currency),
+                [[new TelegramInlineButton(text.Get(language, "Cancel"), "linkauto:back")]],
+                cancellationToken);
+            return;
+        }
+        if (action == "allocation")
+        {
+            waitingForAmount.TryRemove(chatId, out _);
+            waitingForFlapAllocation[chatId] = true;
+            await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
+            await telegramApi.SendButtonsAsync(chatId, text.Get(language, "SendFlapTaxAllocation"),
                 [[new TelegramInlineButton(text.Get(language, "Cancel"), "linkauto:back")]],
                 cancellationToken);
             return;
@@ -112,13 +126,39 @@ public sealed class LinkTokenSettingsMenuService
         CancellationToken cancellationToken)
     {
         long chatId = message.Chat.Id;
-        if (message.Text == null || !waitingForAmount.TryRemove(chatId, out _)
-            || !selections.TryGetValue(chatId, out LinkTokenSelection? selection))
+        if (message.Text == null || !selections.TryGetValue(chatId, out LinkTokenSelection? selection))
         {
             return false;
         }
 
         string language = await premiumService.GetLanguageAsync(chatId, cancellationToken);
+        if (waitingForFlapAllocation.TryRemove(chatId, out _))
+        {
+            string[] values = message.Text.Split([' ', '/', ',', ';'],
+                StringSplitOptions.RemoveEmptyEntries);
+            if (values.Length != 2
+                || !int.TryParse(values[0], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                    out int devPercent)
+                || !int.TryParse(values[1], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                    out int holderPercent)
+                || devPercent < 0 || holderPercent < 0 || devPercent + holderPercent != 100)
+            {
+                await telegramApi.SendMessageAsync(chatId,
+                    text.Get(language, "InvalidFlapTaxAllocation"), cancellationToken);
+                await ShowPanelAsync(chatId, null, selection, language, cancellationToken);
+                return true;
+            }
+
+            selection.FlapHolderPercent = holderPercent;
+            await ShowPanelAsync(chatId, null, selection, language, cancellationToken);
+            return true;
+        }
+
+        if (!waitingForAmount.TryRemove(chatId, out _))
+        {
+            return false;
+        }
+
         if (!decimal.TryParse(message.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture,
                 out decimal amount) || amount <= 0)
         {
@@ -250,6 +290,8 @@ public sealed class LinkTokenSettingsMenuService
         {
             message += "\n" + text.Get(language, "PaymentToken") + ": "
                 + LaunchpadCatalog.FindFlapBscPaymentToken(selection.Anchor)!.Code;
+            message += "\n" + text.Get(language, "FlapTaxAllocationSummary",
+                100 - selection.FlapHolderPercent, selection.FlapHolderPercent);
         }
 
         List<IReadOnlyList<TelegramInlineButton>> buttons =
@@ -286,6 +328,8 @@ public sealed class LinkTokenSettingsMenuService
                 buttons.Add(row.Select(item => Button(item.Code == payment, item.Code,
                     "linkauto:payment=" + item.Code)).ToList());
             }
+            buttons.Add([new TelegramInlineButton(text.Get(language, "FlapTaxAllocation"),
+                "linkauto:allocation")]);
         }
         buttons.Add(Enumerable.Range(1, workerOptions.MaxWorkers).Select(slot => Button(
             selection.WorkerSlots.Contains(slot), text.Get(language, "Worker") + " " + slot,
@@ -330,6 +374,7 @@ public sealed class LinkTokenSettingsMenuService
             Launchpad = settings.Launchpad;
             Anchor = settings.Anchor;
             CreatorTaxPercent = settings.CreatorTaxPercent;
+            FlapHolderPercent = settings.FlapHolderPercent;
             EnableAutoTrading = settings.EnableAutoTrading;
             WorkerSlots.Clear();
             foreach (int slot in settings.WorkerSlots)
@@ -345,6 +390,7 @@ public sealed class LinkTokenSettingsMenuService
         public string Launchpad { get; set; } = "fourmeme";
         public string? Anchor { get; set; }
         public int CreatorTaxPercent { get; set; }
+        public int FlapHolderPercent { get; set; }
         public bool EnableAutoTrading { get; set; }
         // Không tự tích Ví 1: user tích ví nào thì chỉ chạy đúng ví đó.
         public HashSet<int> WorkerSlots { get; } = [];
@@ -353,6 +399,7 @@ public sealed class LinkTokenSettingsMenuService
 
         public LinkTokenConfiguration ToConfiguration() => new(EnableAutoCreate, Chain, Launchpad,
             LaunchpadCatalog.NormalizeRouteOption(Chain, Launchpad, Anchor), CreatorTaxPercent,
-            EnableAutoTrading, WorkerSlots.OrderBy(slot => slot).ToArray(), BuyAmount, SlippagePercent);
+            FlapHolderPercent, EnableAutoTrading, WorkerSlots.OrderBy(slot => slot).ToArray(), BuyAmount,
+            SlippagePercent);
     }
 }

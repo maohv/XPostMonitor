@@ -25,6 +25,8 @@ public sealed class FlapClient
     private const string TaxTokenV3Address = "0x024f18294970B5c76c0691b87f138A0317156422";
     private const string ZeroAddress = "0x0000000000000000000000000000000000000000";
     private static readonly BigInteger Erc20DeployValue = BigInteger.Pow(10, 9); // 1 gwei BNB theo frontend Flap.
+    private static readonly BigInteger MinimumDividendBalance =
+        new BigInteger(10_000) * BigInteger.Pow(10, 18); // Flap yÃªu cáº§u tá»‘i thiá»ƒu 10.000 token.
     private const long RwaBuyGasLimit = 1_500_000;
     private const int BundleLifetimeSeconds = 60;
     private const string DryRunMetadata = "bafkreidw2jltlq6iracbff6kezkytfartob7djta6a6omsbtde3tevy3eq";
@@ -63,6 +65,10 @@ public sealed class FlapClient
         {
             throw new InvalidOperationException("Flap creator tax must be 1%, 3%, 5% or 10%.");
         }
+        if (request.HolderPercent is < 0 or > 100)
+        {
+            throw new InvalidOperationException("Flap holder allocation must be between 0% and 100%.");
+        }
         if (LaunchpadCatalog.FindFlapBscPaymentToken(request.PaymentToken) == null)
         {
             throw new InvalidOperationException("Flap BSC payment token is not supported.");
@@ -76,7 +82,9 @@ public sealed class FlapClient
                 + request.PostUrl + " | Name=" + request.Name + " | Symbol=" + request.Symbol
                 + " | Buy=" + request.BuyAmount.ToString(CultureInfo.InvariantCulture)
                 + " | Payment=" + LaunchpadCatalog.FindFlapBscPaymentToken(request.PaymentToken)!.Code
-                + " | CreatorTax=" + request.CreatorTaxPercent);
+                + " | CreatorTax=" + request.CreatorTaxPercent
+                + " | Dev=" + (100 - request.HolderPercent) + "% | Holders="
+                + request.HolderPercent + "%");
             FlapTokenResult result = await CreateTokenInternalAsync(wallet, request, cancellationToken);
             await FlapDiagnosticLog.WriteAsync("SUCCESS | Wallet=" + wallet.Address + " | Token="
                 + (result.TokenAddress ?? "dry-run") + " | Transaction="
@@ -328,6 +336,8 @@ public sealed class FlapClient
         FlapVanitySalt vanity, BigInteger buyAmount, FlapPaymentToken paymentToken, FlapTokenRequest request)
     {
         ushort taxRate = checked((ushort)(request.CreatorTaxPercent * 100));
+        ushort holderBps = checked((ushort)(request.HolderPercent * 100));
+        ushort devBps = checked((ushort)(10_000 - holderBps));
         return new NewTokenV6Function
         {
             Params = new NewTokenV6Params
@@ -350,11 +360,11 @@ public sealed class FlapClient
                 SellTaxRate = taxRate,
                 TaxDuration = TaxDuration,
                 AntiFarmerDuration = AntiFarmerDuration,
-                MarketingBps = 10000,
+                MarketingBps = devBps,
                 DeflationBps = 0,
-                DividendBps = 0,
+                DividendBps = holderBps,
                 LpBps = 0,
-                MinimumShareBalance = BigInteger.Zero,
+                MinimumShareBalance = holderBps > 0 ? MinimumDividendBalance : BigInteger.Zero,
                 // Portal mới yêu cầu ERC-20 quote phải khai báo chính quote token ở đây.
                 DividendToken = paymentToken.TokenAddress,
                 CommissionReceiver = walletAddress,
@@ -686,7 +696,7 @@ public sealed class FlapClient
 }
 
 public sealed record FlapTokenRequest(string Name, string Symbol, string Description, byte[] Image,
-    string PostUrl, decimal BuyAmount, int CreatorTaxPercent, string? PaymentToken);
+    string PostUrl, decimal BuyAmount, int CreatorTaxPercent, string? PaymentToken, int HolderPercent);
 
 public sealed record FlapTokenResult(string? TransactionHash, string? TokenAddress,
     BigInteger TransactionValueWei, BigInteger? EstimatedGas, bool IsDryRun, bool HasEnoughBalance);

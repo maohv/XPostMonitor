@@ -88,7 +88,10 @@ public sealed class ManualTokenMenuService
                 return;
             }
 
-            ManualTokenSelection selection = new ManualTokenSelection();
+            ManualTokenSelection selection = new ManualTokenSelection
+            {
+                FlapHolderPercent = linkSettings?.FlapHolderPercent ?? 0
+            };
             selections[(chatId, postId)] = selection;
             await ShowAllChoicesAsync(chatId, postId, selection, language, cancellationToken);
             return;
@@ -240,7 +243,8 @@ public sealed class ManualTokenMenuService
             selections.TryRemove((chatId, postId), out _);
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             await CreateAsync(chatId, postId, selection.Chain!, selection.Dex!, selection.Anchor,
-                selection.CreatorTaxPercent!.Value, selection.WorkerSlots, null, language, cancellationToken);
+                selection.CreatorTaxPercent!.Value, selection.WorkerSlots, null,
+                selection.FlapHolderPercent, language, cancellationToken);
             return;
         }
 
@@ -256,7 +260,7 @@ public sealed class ManualTokenMenuService
             selections.TryRemove((chatId, postId), out _);
             pendingImages[chatId] = new PendingManualImage(postId, selection.Chain!, selection.Dex!,
                 selection.Anchor, selection.CreatorTaxPercent!.Value,
-                selection.WorkerSlots.OrderBy(slot => slot).ToArray());
+                selection.WorkerSlots.OrderBy(slot => slot).ToArray(), selection.FlapHolderPercent);
             await telegramApi.DeleteMessageAsync(chatId, messageId, cancellationToken);
             await telegramApi.SendButtonsAsync(chatId, text.Get(language, "SendCustomTokenImage"),
                 [[new TelegramInlineButton("X " + text.Get(language, "Cancel"), "manual:cancel")]],
@@ -362,6 +366,9 @@ public sealed class ManualTokenMenuService
         if (LaunchpadCatalog.IsFlapBsc(selection.Chain, selection.Dex))
         {
             message += text.Get(language, "PaymentToken") + ": " + flapQuoteToken + "\n";
+            int holderPercent = selection.FlapHolderPercent ?? 0;
+            message += text.Get(language, "FlapTaxAllocationSummary", 100 - holderPercent,
+                holderPercent) + "\n";
         }
         string selectedWorkers = selection.WorkerSlots.Count == 0
             ? text.Get(language, "NotSet")
@@ -410,6 +417,7 @@ public sealed class ManualTokenMenuService
                     Mark(paymentToken.Code == flapQuoteToken, paymentToken.Code),
                     "manual:panel:" + postId + ":p=" + paymentToken.Code)).ToList());
             }
+
         }
 
         buttons.Add(Enumerable.Range(1, workerOptions.MaxWorkers)
@@ -618,9 +626,10 @@ public sealed class ManualTokenMenuService
     }
 
     // Tự lấy nội dung Post rồi đưa thẳng vào queue theo cấu hình riêng của link.
-    private async Task CreateLinkAutomaticallyAsync(long chatId, string postId,
+    private async Task CreateLinkAutomaticallyAsync(long chatId, string? postId,
         LinkTokenConfiguration settings, byte[]? customImage, string? tokenNameOverride,
-        string? tokenSymbolOverride, string language, CancellationToken cancellationToken)
+        string? tokenSymbolOverride, string language, CancellationToken cancellationToken,
+        string? customPostUrl = null)
     {
         try
         {
@@ -643,26 +652,51 @@ public sealed class ManualTokenMenuService
                 return;
             }
 
-            XStreamPostResponse response = await xApiClient.GetPostAsync(postId, cancellationToken);
-            XPost post = response.Data!;
-            if (post.ReferencedPosts?.FirstOrDefault()?.Type == "retweeted")
+            string queuePostId;
+            string? username;
+            string postText;
+            string? sourceLanguage;
+            string? photoUrl;
+            string postUrl;
+            if (postId == null)
             {
-                await telegramApi.SendMessageAsync(chatId, text.Get(language, "RepostTokenSkipped"),
-                    cancellationToken);
-                return;
+                queuePostId = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    .ToString(CultureInfo.InvariantCulture);
+                username = null;
+                postText = tokenNameOverride + "\n" + tokenSymbolOverride;
+                sourceLanguage = null;
+                photoUrl = null;
+                postUrl = customPostUrl!;
+            }
+            else
+            {
+                XStreamPostResponse response = await xApiClient.GetPostAsync(postId, cancellationToken);
+                XPost post = response.Data!;
+                if (post.ReferencedPosts?.FirstOrDefault()?.Type == "retweeted")
+                {
+                    await telegramApi.SendMessageAsync(chatId, text.Get(language, "RepostTokenSkipped"),
+                        cancellationToken);
+                    return;
+                }
+
+                XNotificationContent content = XNotificationMessage.Create("x", response, text, language);
+                if (!TokenPostContext.IsMeaningfulReply(response, content.OwnPhotoUrl))
+                {
+                    await telegramApi.SendMessageAsync(chatId, text.Get(language, "SimpleReplyTokenSkipped"),
+                        cancellationToken);
+                    return;
+                }
+
+                queuePostId = postId;
+                username = TokenPostContext.GetAuthorUsername(response);
+                postText = TokenPostContext.BuildAiInput(response);
+                sourceLanguage = post.Language;
+                photoUrl = content.OwnPhotoUrl;
+                postUrl = content.PostUrl;
             }
 
-            XNotificationContent content = XNotificationMessage.Create("x", response, text, language);
-            if (!TokenPostContext.IsMeaningfulReply(response, content.OwnPhotoUrl))
-            {
-                await telegramApi.SendMessageAsync(chatId, text.Get(language, "SimpleReplyTokenSkipped"),
-                    cancellationToken);
-                return;
-            }
-
-            bool queued = await tokenCreation.QueueLinkAutoAsync(chatId, postId,
-                TokenPostContext.GetAuthorUsername(response), TokenPostContext.BuildAiInput(response),
-                post.Language, content.OwnPhotoUrl, content.PostUrl, settings,
+            bool queued = await tokenCreation.QueueLinkAutoAsync(chatId, queuePostId,
+                username, postText, sourceLanguage, photoUrl, postUrl, settings,
                 selectedSlots, customImage, tokenNameOverride, tokenSymbolOverride, language, cancellationToken);
             await telegramApi.SendMessageAsync(chatId,
                 text.Get(language, queued ? "LinkAutoQueued" : "ManualAlreadyRunning"), cancellationToken);
@@ -677,6 +711,14 @@ public sealed class ManualTokenMenuService
     private async Task CreateAsync(long chatId, string postId, string chain, string dex, string? anchor,
         int creatorTaxPercent, IReadOnlyCollection<int> workerSlots, byte[]? customImage, string language,
         CancellationToken cancellationToken)
+    {
+        await CreateAsync(chatId, postId, chain, dex, anchor, creatorTaxPercent, workerSlots,
+            customImage, null, language, cancellationToken);
+    }
+
+    private async Task CreateAsync(long chatId, string postId, string chain, string dex, string? anchor,
+        int creatorTaxPercent, IReadOnlyCollection<int> workerSlots, byte[]? customImage,
+        int? flapHolderPercent, string language, CancellationToken cancellationToken)
     {
         try
         {
@@ -713,7 +755,7 @@ public sealed class ManualTokenMenuService
             string? username = TokenPostContext.GetAuthorUsername(response);
             bool queued = await tokenCreation.QueueManualAsync(chatId, postId, username, tokenText,
                 post.Language, content.OwnPhotoUrl, content.PostUrl, chain, dex, anchor, creatorTaxPercent,
-                selectedSlots, customImage, language, cancellationToken);
+                selectedSlots, customImage, flapHolderPercent, language, cancellationToken);
             if (!queued)
             {
                 await telegramApi.SendMessageAsync(chatId, text.Get(language, "ManualAlreadyRunning"),
@@ -740,14 +782,16 @@ public sealed class ManualTokenMenuService
     {
         bool hasPendingImage = pendingImages.TryRemove(message.Chat.Id, out PendingManualImage? pending);
         string? captionPostId = null;
+        string? captionPostUrl = null;
         string? tokenNameOverride = null;
         string? tokenSymbolOverride = null;
         LinkTokenConfiguration? linkSettings = null;
         if (!hasPendingImage)
         {
             // Không tải ảnh nếu đây chỉ là một ảnh Telegram bình thường, không có link X hợp lệ.
-            (captionPostId, tokenNameOverride, tokenSymbolOverride) = ReadPhotoCaption(message.Caption);
-            if (!enableManualTokenCreation || captionPostId == null)
+            (captionPostId, captionPostUrl, tokenNameOverride, tokenSymbolOverride) =
+                ReadPhotoCaption(message.Caption);
+            if (!enableManualTokenCreation || captionPostUrl == null)
             {
                 return false;
             }
@@ -758,7 +802,9 @@ public sealed class ManualTokenMenuService
             }
 
             int maximumNameLength = GetMaximumTokenNameLength(linkSettings.Launchpad);
-            if (!IsValidCustomTokenName(tokenNameOverride, maximumNameLength)
+            if ((captionPostId == null && (string.IsNullOrWhiteSpace(tokenNameOverride)
+                    || string.IsNullOrWhiteSpace(tokenSymbolOverride)))
+                || !IsValidCustomTokenName(tokenNameOverride, maximumNameLength)
                 || !IsValidCustomTokenSymbol(tokenSymbolOverride, linkSettings.Launchpad))
             {
                 await telegramApi.SendMessageAsync(message.Chat.Id,
@@ -783,13 +829,14 @@ public sealed class ManualTokenMenuService
             if (hasPendingImage)
             {
                 await CreateAsync(message.Chat.Id, pending!.PostId, pending.Chain, pending.Dex, pending.Anchor,
-                    pending.CreatorTaxPercent, pending.WorkerSlots, image, language, cancellationToken);
+                    pending.CreatorTaxPercent, pending.WorkerSlots, image, pending.FlapHolderPercent,
+                    language, cancellationToken);
                 return true;
             }
 
             // Ảnh và link nằm cùng một message nên không thể lấy nhầm ảnh của Post khác.
-            await CreateLinkAutomaticallyAsync(message.Chat.Id, captionPostId!, linkSettings!, image,
-                tokenNameOverride, tokenSymbolOverride, language, cancellationToken);
+            await CreateLinkAutomaticallyAsync(message.Chat.Id, captionPostId, linkSettings!, image,
+                tokenNameOverride, tokenSymbolOverride, language, cancellationToken, captionPostUrl);
         }
         catch (Exception exception)
         {
@@ -801,15 +848,17 @@ public sealed class ManualTokenMenuService
 
     // Dạng mới: dòng 1 = mã, dòng 2 = tên, dòng 3 = link X.
     // Dạng cũ "tên + link" vẫn dùng tên đó cho cả tên và mã.
-    private static (string? PostId, string? TokenName, string? TokenSymbol) ReadPhotoCaption(string? caption)
+    private static (string? PostId, string? PostUrl, string? TokenName, string? TokenSymbol)
+        ReadPhotoCaption(string? caption)
     {
         string[] lines = (caption ?? string.Empty)
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        string? postId = lines.Select(XPostLinkParser.ParsePostId).FirstOrDefault(id => id != null);
-        string[] values = lines.Where(line => XPostLinkParser.ParsePostId(line) == null).ToArray();
+        string? postUrl = lines.Select(XPostLinkParser.ParseXUrl).FirstOrDefault(url => url != null);
+        string? postId = XPostLinkParser.ParsePostId(postUrl);
+        string[] values = lines.Where(line => XPostLinkParser.ParseXUrl(line) == null).ToArray();
         string? symbol = values.ElementAtOrDefault(0);
         string? name = values.ElementAtOrDefault(1) ?? symbol;
-        return (postId, name, symbol);
+        return (postId, postUrl, name, symbol);
     }
 
     private static bool IsValidCustomTokenName(string? value, int maximumLength)
@@ -953,7 +1002,7 @@ public sealed class ManualTokenMenuService
     }
 
     private sealed record PendingManualImage(string PostId, string Chain, string Dex, string? Anchor,
-        int CreatorTaxPercent, IReadOnlyCollection<int> WorkerSlots);
+        int CreatorTaxPercent, IReadOnlyCollection<int> WorkerSlots, int? FlapHolderPercent = null);
 
     private sealed class ManualTokenSelection
     {
@@ -961,6 +1010,7 @@ public sealed class ManualTokenMenuService
         public string? Dex { get; set; }
         public string? Anchor { get; set; }
         public int? CreatorTaxPercent { get; set; }
+        public int? FlapHolderPercent { get; set; }
         public HashSet<int> WorkerSlots { get; } = [];
         public bool? UseCustomImage { get; set; }
     }

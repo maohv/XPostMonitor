@@ -10,6 +10,7 @@ public sealed class LinkTokenSettings
     public string Launchpad { get; set; } = "fourmeme";
     public string? Anchor { get; set; }
     public int CreatorTaxPercent { get; set; }
+    public int FlapHolderPercent { get; set; }
     public bool EnableAutoTrading { get; set; }
     public string WorkerSlots { get; set; } = "1";
     public decimal BuyAmount { get; set; } = 0.05m;

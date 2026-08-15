@@ -24,6 +24,7 @@ public sealed class TelegramBotService : BackgroundService
     private readonly ArcBridgeMenuService arcBridgeMenu;
     private readonly ManualTokenMenuService manualTokenMenu;
     private readonly LinkTokenSettingsMenuService linkTokenSettingsMenu;
+    private readonly NftMintMenuService nftMintMenu;
     private readonly BotTextService text;
     private readonly GmgnClient gmgnClient;
     private readonly OpenAiClient openAiClient;
@@ -42,7 +43,8 @@ public sealed class TelegramBotService : BackgroundService
         TokenSettingsMenuService tokenSettingsMenu, AutoTradingMenuService autoTradingMenu,
         ChannelWatchlistService channelWatchlistService,
         PremiumService premiumService, LanguageMenuService languageMenu, ManualTokenMenuService manualTokenMenu,
-        ArcBridgeMenuService arcBridgeMenu, LinkTokenSettingsMenuService linkTokenSettingsMenu, BotTextService text,
+        ArcBridgeMenuService arcBridgeMenu, LinkTokenSettingsMenuService linkTokenSettingsMenu,
+        NftMintMenuService nftMintMenu, BotTextService text,
         GmgnClient gmgnClient, OpenAiClient openAiClient, FluxClient fluxClient,
         TokenPreviewService tokenPreviewService, BotOptions options,
         ILogger<TelegramBotService> logger)
@@ -58,6 +60,7 @@ public sealed class TelegramBotService : BackgroundService
         this.arcBridgeMenu = arcBridgeMenu;
         this.manualTokenMenu = manualTokenMenu;
         this.linkTokenSettingsMenu = linkTokenSettingsMenu;
+        this.nftMintMenu = nftMintMenu;
         this.text = text;
         this.gmgnClient = gmgnClient;
         this.openAiClient = openAiClient;
@@ -163,7 +166,8 @@ public sealed class TelegramBotService : BackgroundService
         string language = await premiumService.GetLanguageAsync(message.Chat.Id, cancellationToken);
 
         if (!message.Text!.StartsWith('/')
-            && (await arcBridgeMenu.HandlePendingInputAsync(message, cancellationToken)
+            && (await nftMintMenu.HandlePendingInputAsync(message, language, cancellationToken)
+                || await arcBridgeMenu.HandlePendingInputAsync(message, cancellationToken)
                 || await autoTradingMenu.HandlePendingInputAsync(message, cancellationToken)
                 || await linkTokenSettingsMenu.HandlePendingInputAsync(message, cancellationToken)
                 || await tokenSettingsMenu.HandlePendingInputAsync(message, cancellationToken)))
@@ -329,6 +333,13 @@ public sealed class TelegramBotService : BackgroundService
         if (!hasPremium)
         {
             await telegramApi.SendMessageAsync(chatId, text.Get(language, "PersonalClosed"), cancellationToken);
+            return;
+        }
+
+        if (callback.Data.StartsWith("nft:", StringComparison.Ordinal))
+        {
+            await nftMintMenu.HandleCallbackAsync(chatId, callback.Message.MessageId, callback.Data,
+                language, cancellationToken);
             return;
         }
 

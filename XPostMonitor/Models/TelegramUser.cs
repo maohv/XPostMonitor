@@ -19,4 +19,5 @@ public sealed class TelegramUser
     public UserTradingSettings? TradingSettings { get; set; }
     public LinkTokenSettings? LinkTokenSettings { get; set; }
     public ArcBridgeWallet? ArcBridgeWallet { get; set; }
+    public ICollection<NftWallet> NftWallets { get; set; } = new List<NftWallet>();
 }

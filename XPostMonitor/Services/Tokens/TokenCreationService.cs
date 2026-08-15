@@ -92,12 +92,12 @@ public sealed class TokenCreationService : BackgroundService
 
     public async ValueTask<bool> QueueManualAsync(long chatId, string postId, string? username, string postText,
         string? sourceLanguage, string? photoUrl, string postUrl, string chain, string launchpad, string? anchor,
-        int creatorTaxPercent, IReadOnlyCollection<int> workerSlots, byte[]? customImage, string language,
-        CancellationToken cancellationToken)
+        int creatorTaxPercent, IReadOnlyCollection<int> workerSlots, byte[]? customImage,
+        int? flapHolderPercentOverride, string language, CancellationToken cancellationToken)
     {
         return await QueueDirectLinkAsync(chatId, postId, username, postText, sourceLanguage, photoUrl,
             postUrl, chain, launchpad, anchor, creatorTaxPercent, workerSlots, customImage,
-            true, null, null, null, language, cancellationToken);
+            true, null, null, null, flapHolderPercentOverride, language, cancellationToken);
     }
 
     // Auto của link dùng cùng hàng đợi nhanh, nhưng mang theo số tiền riêng từ LinkTokenSettings.
@@ -110,14 +110,14 @@ public sealed class TokenCreationService : BackgroundService
         return await QueueDirectLinkAsync(chatId, postId, username, postText, sourceLanguage, photoUrl,
             postUrl, settings.Chain, settings.Launchpad, settings.Anchor, settings.CreatorTaxPercent,
             workerSlots, customImage, settings.EnableAutoTrading, amountSettings, tokenNameOverride,
-            tokenSymbolOverride, language, cancellationToken);
+            tokenSymbolOverride, settings.FlapHolderPercent, language, cancellationToken);
     }
 
     private async ValueTask<bool> QueueDirectLinkAsync(long chatId, string postId, string? username,
         string postText, string? sourceLanguage, string? photoUrl, string postUrl, string chain,
         string launchpad, string? anchor, int creatorTaxPercent, IReadOnlyCollection<int> workerSlots,
         byte[]? customImage, bool enableAutoTrading, TokenCreateSettings? settingsOverride,
-        string? tokenNameOverride, string? tokenSymbolOverride, string language,
+        string? tokenNameOverride, string? tokenSymbolOverride, int? flapHolderPercentOverride, string language,
         CancellationToken cancellationToken)
     {
         int[] selectedSlots = workerSlots.Distinct().OrderBy(slot => slot).ToArray();
@@ -150,7 +150,8 @@ public sealed class TokenCreationService : BackgroundService
                     customImage != null || !string.IsNullOrWhiteSpace(photoUrl), creatorTaxPercent, true,
                     settingsOverride, BotTextService.Normalize(language), DateTimeOffset.UtcNow, true, jobKey,
                     worker.WorkerId,
-                    worker.SlotNumber, workerCount, sharedPreview, tokenNameOverride, tokenSymbolOverride),
+                    worker.SlotNumber, workerCount, sharedPreview, tokenNameOverride, tokenSymbolOverride,
+                    flapHolderPercentOverride),
                     cancellationToken);
             }
             return true;
@@ -256,8 +257,16 @@ public sealed class TokenCreationService : BackgroundService
             return;
         }
 
+        FlapTaxAllocation flapTaxAllocation = FlapTaxAllocation.DevOnly;
+        if (request.Launchpad == "flap" && request.Chain == "bsc")
+        {
+            flapTaxAllocation = request.FlapHolderPercentOverride.HasValue
+                ? new FlapTaxAllocation(100 - request.FlapHolderPercentOverride.Value,
+                    request.FlapHolderPercentOverride.Value)
+                : await tokenSettings.GetFlapTaxAllocationAsync(request.ChatId, cancellationToken);
+        }
         TokenResult result = await CreateOnLaunchpadAsync(request, worker.Wallet, preview, settings.BuyAmount,
-            settings.SlippagePercent, cancellationToken);
+            settings.SlippagePercent, flapTaxAllocation, cancellationToken);
         string gas = result.EstimatedGas?.ToString() ?? text.Get(request.Language, "DryRunGasSkipped");
         string balanceStatus = text.Get(request.Language,
             result.HasEnoughBalance ? "DryRunBalanceEnough" : "DryRunBalanceLow");
@@ -282,6 +291,8 @@ public sealed class TokenCreationService : BackgroundService
             {
                 caption += "\n" + text.Get(request.Language, "PaymentToken") + ": "
                     + LaunchpadCatalog.FindFlapBscPaymentToken(request.Anchor)!.Code;
+                caption += "\n" + text.Get(request.Language, "FlapTaxAllocationSummary",
+                    flapTaxAllocation.DevPercent, flapTaxAllocation.HolderPercent);
             }
         }
         if (!string.IsNullOrWhiteSpace(result.TransactionHash))
@@ -341,7 +352,7 @@ public sealed class TokenCreationService : BackgroundService
 
     private async Task<TokenResult> CreateOnLaunchpadAsync(TokenCreationRequest request,
         EvmWalletCredentials wallet, TokenPreviewDto preview, decimal buyAmount, decimal slippagePercent,
-        CancellationToken cancellationToken)
+        FlapTaxAllocation flapTaxAllocation, CancellationToken cancellationToken)
     {
         if (request.Launchpad == "fourmeme")
         {
@@ -381,7 +392,7 @@ public sealed class TokenCreationService : BackgroundService
 
             FlapTokenRequest flapRequest = new FlapTokenRequest(preview.Draft.Name,
                 preview.Draft.Symbol, preview.Draft.Description, preview.Image, request.PostUrl, buyAmount,
-                request.CreatorTaxPercent, request.Anchor);
+                request.CreatorTaxPercent, request.Anchor, flapTaxAllocation.HolderPercent);
             FlapTokenResult flapResult = await flapClient.CreateTokenAsync(wallet, flapRequest,
                 cancellationToken);
             return new TokenResult(flapResult.TransactionHash, flapResult.EstimatedGas, flapResult.IsDryRun,
@@ -430,7 +441,7 @@ public sealed class TokenCreationService : BackgroundService
         string? ManualJobKey,
         long? TradingWorkerId, int WorkerSlot,
         int VariantCount, SharedTokenPreview SharedPreview, string? TokenNameOverride = null,
-        string? TokenSymbolOverride = null);
+        string? TokenSymbolOverride = null, int? FlapHolderPercentOverride = null);
 
     private sealed class SharedTokenPreview
     {

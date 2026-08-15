@@ -47,9 +47,11 @@ public sealed class ArcBridgeMenuService
         string message = hasPremium
             ? text.Get(language, "PersonalHelp") + "\n\n" + text.Get(language, "ArcBridgeFree")
             : text.Get(language, "ArcBridgePublicStart");
-        await telegramApi.SendButtonsAsync(chatId, message,
-            [[new TelegramInlineButton(text.Get(language, "ArcBridgeButton"), "arcbridge:open")]],
-            cancellationToken);
+        List<IReadOnlyList<TelegramInlineButton>> buttons =
+            [[new TelegramInlineButton(text.Get(language, "ArcBridgeButton"), "arcbridge:open")]];
+        if (hasPremium)
+            buttons.Add([new TelegramInlineButton(text.Get(language, "NftStartButton"), "nft:open")]);
+        await telegramApi.SendButtonsAsync(chatId, message, buttons, cancellationToken);
     }
 
     // Xu ly cac nut rieng cua Bridge truoc khi TelegramBotService kiem tra Premium.

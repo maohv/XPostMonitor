@@ -24,6 +24,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<ArcBridgeTransfer> ArcBridgeTransfers { get; set; } = null!;
     public DbSet<LinkTokenSettings> LinkTokenSettings { get; set; } = null!;
     public DbSet<BinanceAlphaToken> BinanceAlphaTokens { get; set; } = null!;
+    public DbSet<NftWallet> NftWallets { get; set; } = null!;
 
     // Khai báo khóa chính, độ dài cột và quan hệ giữa các bảng.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -78,6 +79,7 @@ public sealed class AppDbContext : DbContext
         {
             entity.HasKey(x => x.ChatId);
             entity.Property(x => x.ChatId).ValueGeneratedNever();
+            entity.Property(x => x.FlapHolderPercent).HasDefaultValue(0);
             entity.HasOne(x => x.TelegramUser).WithOne(x => x.TradingSettings).HasForeignKey<UserTradingSettings>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -112,6 +114,16 @@ public sealed class AppDbContext : DbContext
             entity.Property(x => x.WalletAddress).HasMaxLength(42);
             entity.HasOne(x => x.TelegramUser).WithOne(x => x.ArcBridgeWallet)
                 .HasForeignKey<ArcBridgeWallet>(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<NftWallet>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.WalletAddress).HasMaxLength(42);
+            entity.HasIndex(x => new { x.ChatId, x.SlotNumber }).IsUnique();
+            entity.HasIndex(x => new { x.ChatId, x.WalletAddress }).IsUnique();
+            entity.HasOne(x => x.TelegramUser).WithMany(x => x.NftWallets)
+                .HasForeignKey(x => x.ChatId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ArcBridgeTransfer>(entity =>

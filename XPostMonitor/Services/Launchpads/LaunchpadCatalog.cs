@@ -26,11 +26,15 @@ public static class LaunchpadCatalog
         new("TSLA", "TSLA - Tesla", "0x322f0929c4625ed5bad873c95208d54e1c003b2d")
     ];
 
-    // Các payment token RWA đang được Flap cho phép tạo token trên BSC.
+    // Danh sách Crypto/RWA dự phòng khi chưa bấm Update hoặc Flap tạm thời không truy cập được.
     // BNB dùng địa chỉ zero vì đây là native token của BSC.
     private static FlapPaymentToken[] flapBscPaymentTokens =
     [
         new("BNB", "BNB", "0x0000000000000000000000000000000000000000", 18),
+        new("USDT", "USDT", "0x55d398326f99059fF775485246999027B3197955", 18),
+        new("USD1", "USD1", "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d", 18),
+        new("U", "U - United Stables", "0xcE24439F2D9C6a2289F741120FE202248B666666", 18),
+        new("BTCB", "BTCB", "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c", 18),
         new("SPCXB", "SPCXB - SpaceX", "0xbe9D156892E55e7154BcD3cB0FEA677F9D3103E1", 18),
         new("SKHYB", "SKHYB - SK Hynix", "0xCA750eF65f295BBECd685Abf54e82CAf297BDB61", 18),
         new("SPYB", "SPYB - SPY", "0x7138b48df7D98D7e3cc221BfE7192D0a178182D8", 18),
@@ -39,7 +43,7 @@ public static class LaunchpadCatalog
         new("NVDAB", "NVDAB - NVIDIA", "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436", 18)
     ];
 
-    // Service cập nhật RWA chỉ thay cả mảng sau khi đã kiểm tra xong, nên menu đang mở không đọc phải dữ liệu dở dang.
+    // Service chỉ thay cả mảng sau khi Update xong, nên menu không đọc phải dữ liệu dở dang.
     public static IReadOnlyList<FlapPaymentToken> FlapBscPaymentTokens =>
         Volatile.Read(ref flapBscPaymentTokens);
 

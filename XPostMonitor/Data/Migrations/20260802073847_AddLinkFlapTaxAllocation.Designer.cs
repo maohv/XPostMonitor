@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using XPostMonitor.Data;
 
@@ -11,9 +12,11 @@ using XPostMonitor.Data;
 namespace XPostMonitor.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802073847_AddLinkFlapTaxAllocation")]
+    partial class AddLinkFlapTaxAllocation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -360,52 +363,6 @@ namespace XPostMonitor.Data.Migrations
                     b.ToTable("LinkTokenSettings");
                 });
 
-            modelBuilder.Entity("XPostMonitor.Models.NftWallet", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<long>("ChatId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("EncryptedPrivateKey")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("bit");
-
-                    b.Property<int>("MintGroup")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SlotNumber")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("WalletAddress")
-                        .IsRequired()
-                        .HasMaxLength(42)
-                        .HasColumnType("nvarchar(42)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChatId", "SlotNumber")
-                        .IsUnique();
-
-                    b.HasIndex("ChatId", "WalletAddress")
-                        .IsUnique();
-
-                    b.ToTable("NftWallets");
-                });
-
             modelBuilder.Entity("XPostMonitor.Models.TakeProfitSetting", b =>
                 {
                     b.Property<int>("Id")
@@ -746,17 +703,6 @@ namespace XPostMonitor.Data.Migrations
                     b.Navigation("TelegramUser");
                 });
 
-            modelBuilder.Entity("XPostMonitor.Models.NftWallet", b =>
-                {
-                    b.HasOne("XPostMonitor.Models.TelegramUser", "TelegramUser")
-                        .WithMany("NftWallets")
-                        .HasForeignKey("ChatId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TelegramUser");
-                });
-
             modelBuilder.Entity("XPostMonitor.Models.TakeProfitSetting", b =>
                 {
                     b.HasOne("XPostMonitor.Models.TelegramUser", "TelegramUser")
@@ -850,8 +796,6 @@ namespace XPostMonitor.Data.Migrations
                     b.Navigation("ChainTradingSettings");
 
                     b.Navigation("LinkTokenSettings");
-
-                    b.Navigation("NftWallets");
 
                     b.Navigation("TakeProfitSettings");
 

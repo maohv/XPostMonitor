@@ -380,6 +380,27 @@ public sealed class GmgnClient
             cancellationToken);
     }
 
+    // Đọc giá USD hiện tại, dùng chung dù pool ghép với BNB, BTCB, stablecoin hay RWA.
+    public async Task<decimal> GetTokenPoolPriceUsdAsync(string apiKey, string chain,
+        string tokenAddress, CancellationToken cancellationToken)
+    {
+        string output = await RunAsync(
+            ["token", "info", "--chain", chain, "--address", tokenAddress, "--raw"],
+            apiKey, null, false, cancellationToken);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        JsonElement priceData = root.TryGetProperty("price", out JsonElement value)
+            && value.ValueKind == JsonValueKind.Object ? value : root;
+        decimal price = ReadDecimal(priceData, "price");
+        if (price <= 0)
+        {
+            price = ReadDecimal(priceData, "price_usd");
+        }
+        return price > 0
+            ? price
+            : throw new InvalidOperationException("GMGN did not return the current token price.");
+    }
+
     private async Task<string> WaitForSellConfirmationAsync(GmgnCredentials credentials, string chain,
         string orderId, string transactionHash, CancellationToken cancellationToken)
     {

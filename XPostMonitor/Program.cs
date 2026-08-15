@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using XPostMonitor.Configuration;
 using XPostMonitor.Data;
+using XPostMonitor.Models;
 using XPostMonitor.Services;
 using XPostMonitor.Services.ArcBridge;
 using XPostMonitor.Services.BinanceAlpha;
@@ -22,6 +23,7 @@ using XPostMonitor.Services.Launchpads.FlapRobinhood;
 using XPostMonitor.Services.Launchpads.LongRobinhood;
 using XPostMonitor.Services.Launchpads.PonsRobinhood;
 using XPostMonitor.Services.OpenAi;
+using XPostMonitor.Services.Nft;
 using XPostMonitor.Services.Telegram;
 using XPostMonitor.Services.Telegram.Localization;
 using XPostMonitor.Services.Tokens;
@@ -30,6 +32,56 @@ using XPostMonitor.Services.X;
 using XPostMonitor.Services.X.Channels;
 using XPostMonitor.Services.X.Notifications;
 using XPostMonitor.Services.ZImage;
+
+// Kiểm tra nhanh parser mà không khởi động bot hoặc chạm vào tiền/database.
+if (args.Contains("--nft-self-check", StringComparer.OrdinalIgnoreCase))
+{
+    const string expected = "thebull2026";
+    string actual = OpenSeaNftClient.GetCollectionSlug("https://opensea.io/collection/thebull2026");
+    if (actual != expected) throw new InvalidOperationException("NFT URL self-check failed.");
+    if (OpenSeaNftClient.GetCollectionSlug("https://opensea.io/collection/thebull2026/overview") != expected)
+        throw new InvalidOperationException("NFT overview URL self-check failed.");
+    const string expiredDrop = "0x13da22f2"
+        + "000000000000000000000000000000000000000000000000000000006a7ffb66"
+        + "000000000000000000000000000000000000000000000000000000006a7ffb29"
+        + "000000000000000000000000000000000000000000000000000000006a7ffb65";
+    if (OpenSeaNftClient.ExplainRevertData(expiredDrop)?.StartsWith("Public mint không còn hoạt động") != true)
+        throw new InvalidOperationException("NFT revert reason self-check failed.");
+    try
+    {
+        OpenSeaNftClient.GetCollectionSlug("https://opensea.io/assets/robinhood/0x123/1");
+        throw new InvalidOperationException("NFT URL safety self-check failed.");
+    }
+    catch (ArgumentException) { }
+    EvmWalletCredentials key = EvmKeyHelper.Create();
+    if (EvmKeyHelper.Read(key.PrivateKey).Address != key.Address)
+        throw new InvalidOperationException("NFT wallet self-check failed.");
+    NftMintWallet[] testWallets =
+    [
+        new NftMintWallet(1, 1, key),
+        new NftMintWallet(2, 2, key)
+    ];
+    if (NftMintService.BuildItems(testWallets, NftMintMode.Round, 3).Count != 6)
+        throw new InvalidOperationException("NFT round plan self-check failed.");
+    if (NftMintService.SelectWalletGroup(0) != NftWalletGroup.Free
+        || NftMintService.SelectWalletGroup(1) != NftWalletGroup.Paid)
+        throw new InvalidOperationException("NFT wallet group self-check failed.");
+    Console.WriteLine("NFT self-check passed. No transaction was sent.");
+    return;
+}
+
+// Kiểm tra read-only một link thật; không tạo ví và không gửi giao dịch.
+int nftLinkIndex = Array.FindIndex(args, x => x.Equals("--nft-check-link", StringComparison.OrdinalIgnoreCase));
+if (nftLinkIndex >= 0 && nftLinkIndex + 1 < args.Length)
+{
+    using HttpClient http = new() { BaseAddress = new Uri("https://opensea.io/"), Timeout = TimeSpan.FromSeconds(30) };
+    OpenSeaNftClient client = new OpenSeaNftClient(http, new OpenSeaNftOptions());
+    OpenSeaCollection collection = await client.GetCollectionAsync(args[nftLinkIndex + 1], CancellationToken.None);
+    Console.WriteLine($"OpenSea OK: {collection.Name} | {collection.ContractAddress}");
+    SeaDropInfo drop = await client.GetPublicDropAsync(collection, CancellationToken.None);
+    Console.WriteLine($"SeaDrop OK: {Nethereum.Web3.Web3.Convert.FromWei(drop.MintPriceWei)} ETH | max {drop.MaxTotalMintableByWallet}/wallet");
+    return;
+}
 
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
@@ -129,6 +181,12 @@ binanceAlphaOptions.RestCheckIntervalSeconds = Math.Max(5,
     binanceAlphaOptions.RestCheckIntervalSeconds);
 builder.Services.AddSingleton(binanceAlphaOptions);
 
+OpenSeaNftOptions openSeaNftOptions = new OpenSeaNftOptions();
+builder.Configuration.GetSection(OpenSeaNftOptions.SectionName).Bind(openSeaNftOptions);
+openSeaNftOptions.MaxWallets = Math.Clamp(openSeaNftOptions.MaxWallets, 1, 30);
+openSeaNftOptions.SendDelayMs = Math.Clamp(openSeaNftOptions.SendDelayMs, 0, 5000);
+builder.Services.AddSingleton(openSeaNftOptions);
+
 builder.Services.AddHttpClient<XApiClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.x.com/");
@@ -219,6 +277,18 @@ builder.Services.AddHttpClient<BinanceAlphaClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(15);
 });
 
+builder.Services.AddHttpClient<OpenSeaNftClient>(client =>
+{
+    client.BaseAddress = new Uri("https://opensea.io/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient<NftPortfolioClient>(client =>
+{
+    client.BaseAddress = new Uri("https://robinhoodchain.blockscout.com/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
 // Các service xử lý chức năng thông thường.
 builder.Services.AddSingleton<WatchlistService>();
 builder.Services.AddSingleton<BotTextService>();
@@ -226,6 +296,9 @@ builder.Services.AddSingleton<LanguageMenuService>();
 builder.Services.AddSingleton<ArcBridgeMenuService>();
 builder.Services.AddSingleton<ArcBridgeWalletService>();
 builder.Services.AddSingleton<ArcBridgeTransferService>();
+builder.Services.AddSingleton<NftWalletService>();
+builder.Services.AddSingleton<NftMintService>();
+builder.Services.AddSingleton<NftMintMenuService>();
 builder.Services.AddSingleton<ManualTokenMenuService>();
 builder.Services.AddSingleton<LinkTokenSettingsMenuService>();
 builder.Services.AddSingleton<WatchlistMenuService>();
