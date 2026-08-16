@@ -131,6 +131,21 @@ public sealed class NftWalletService
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    // Chỉ xóa đúng các ví mint đã chọn trong nhóm hiện tại; không bao giờ xóa ví chính.
+    public async Task<int> DeleteManyAsync(long chatId, NftWalletGroup mintGroup,
+        IReadOnlyCollection<long> ids, CancellationToken cancellationToken)
+    {
+        if (ids.Count == 0) return 0;
+        using IServiceScope scope = scopeFactory.CreateScope();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        List<NftWallet> rows = await db.NftWallets.Where(x => x.ChatId == chatId
+            && x.SlotNumber > 0 && x.MintGroup == mintGroup && ids.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+        db.NftWallets.RemoveRange(rows);
+        await db.SaveChangesAsync(cancellationToken);
+        return rows.Count;
+    }
+
     public async Task MoveToOtherGroupAsync(long chatId, long id,
         CancellationToken cancellationToken)
     {

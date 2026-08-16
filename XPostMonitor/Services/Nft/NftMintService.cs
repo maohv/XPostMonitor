@@ -11,6 +11,7 @@ namespace XPostMonitor.Services.Nft;
 public sealed class NftMintService
 {
     private const long RobinhoodChainId = 4663;
+    private const long SweepGasLimit = 21_000;
     private readonly NftWalletService wallets;
     private readonly OpenSeaNftClient openSea;
     private readonly OpenSeaNftOptions options;
@@ -223,6 +224,87 @@ public sealed class NftMintService
         return hashes;
     }
 
+    // Tính trước số ETH có thể gom sau khi dành đủ gas cho từng ví mint.
+    public async Task<NftSweepPlan> PrepareSweepAsync(long chatId, NftWalletGroup mintGroup,
+        IReadOnlyCollection<long> selectedWalletIds, CancellationToken cancellationToken)
+    {
+        EvmWalletCredentials main = await wallets.GetMainAsync(chatId, cancellationToken)
+            ?? throw new InvalidOperationException("Chưa có ví chính NFT.");
+        IReadOnlyList<NftMintWallet> targets = await wallets.GetMintWalletsAsync(chatId,
+            mintGroup, cancellationToken);
+        targets = targets.Where(x => selectedWalletIds.Contains(x.Id)).ToList();
+        if (targets.Count == 0) throw new InvalidOperationException("Chưa chọn ví mint NFT.");
+
+        Web3 web3 = new(options.RpcUrl);
+        BigInteger gasPrice = (await web3.Eth.GasPrice.SendRequestAsync()
+            .WaitAsync(cancellationToken)).Value * 130 / 100;
+        List<NftSweepItem> items = [];
+        foreach (NftMintWallet target in targets)
+        {
+            BigInteger balance = (await web3.Eth.GetBalance
+                .SendRequestAsync(target.Credentials.Address).WaitAsync(cancellationToken)).Value;
+            BigInteger fee = gasPrice * SweepGasLimit;
+            items.Add(new NftSweepItem(target, balance, fee,
+                CalculateSweepAmount(balance, fee)));
+        }
+        return new NftSweepPlan(main.Address, mintGroup, items);
+    }
+
+    // Tính lại số dư và gas ngay trước khi gửi; một ví lỗi không làm dừng các ví còn lại.
+    public async Task<IReadOnlyList<NftSweepOutcome>> ExecuteSweepAsync(NftSweepPlan plan,
+        CancellationToken cancellationToken)
+    {
+        List<NftSweepOutcome> results = [];
+        foreach (NftSweepItem item in plan.Items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                Account account = new(item.Wallet.Credentials.PrivateKey, RobinhoodChainId);
+                Web3 web3 = new(account, options.RpcUrl);
+                BigInteger balance = (await web3.Eth.GetBalance.SendRequestAsync(account.Address)
+                    .WaitAsync(cancellationToken)).Value;
+                BigInteger gasPrice = (await web3.Eth.GasPrice.SendRequestAsync()
+                    .WaitAsync(cancellationToken)).Value * 130 / 100;
+                BigInteger fee = gasPrice * SweepGasLimit;
+                BigInteger amount = CalculateSweepAmount(balance, fee);
+                if (amount.IsZero)
+                {
+                    results.Add(new NftSweepOutcome(item.Wallet.SlotNumber, account.Address,
+                        amount, null, "Số dư không đủ trả gas.", false));
+                    continue;
+                }
+                if (!options.EnableRealTransactions)
+                {
+                    results.Add(new NftSweepOutcome(item.Wallet.SlotNumber, account.Address,
+                        amount, null, null, true));
+                    continue;
+                }
+
+                string hash = await web3.Eth.GetEtherTransferService().TransferEtherAsync(
+                    plan.MainWalletAddress, Web3.Convert.FromWei(amount),
+                    gasPriceGwei: (decimal)gasPrice / 1_000_000_000m, gas: SweepGasLimit)
+                    .WaitAsync(cancellationToken);
+                results.Add(new NftSweepOutcome(item.Wallet.SlotNumber, account.Address,
+                    amount, hash, null, false));
+                await NftDiagnosticLog.WriteAsync($"GOM ETH V{item.Wallet.SlotNumber}: "
+                    + $"Wallet={account.Address}, AmountWei={amount}, Tx={hash}");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception exception)
+            {
+                results.Add(new NftSweepOutcome(item.Wallet.SlotNumber,
+                    item.Wallet.Credentials.Address, BigInteger.Zero, null, exception.Message, false));
+                await NftDiagnosticLog.WriteAsync($"LỖI GOM ETH V{item.Wallet.SlotNumber}, "
+                    + $"Wallet={item.Wallet.Credentials.Address}: {exception}");
+            }
+        }
+        return results;
+    }
+
+    internal static BigInteger CalculateSweepAmount(BigInteger balance, BigInteger fee) =>
+        balance > fee ? balance - fee : BigInteger.Zero;
+
     internal static IReadOnlyList<NftMintPlanItem> BuildItems(IReadOnlyList<NftMintWallet> wallets,
         NftMintMode mode, int value)
     {
@@ -251,4 +333,10 @@ public sealed record NftMintPlan(SeaDropInfo Drop, NftWalletGroup MintGroup,
     NftMintMode Mode, int InputValue,
     IReadOnlyList<NftMintPlanItem> Items, int TotalQuantity, BigInteger TotalValueWei);
 public sealed record NftMintOutcome(int SlotNumber, string Wallet, int Round, int Quantity,
+    string? TransactionHash, string? Error, bool IsDryRun);
+public sealed record NftSweepItem(NftMintWallet Wallet, BigInteger BalanceWei,
+    BigInteger EstimatedFeeWei, BigInteger TransferWei);
+public sealed record NftSweepPlan(string MainWalletAddress, NftWalletGroup MintGroup,
+    IReadOnlyList<NftSweepItem> Items);
+public sealed record NftSweepOutcome(int SlotNumber, string Wallet, BigInteger TransferWei,
     string? TransactionHash, string? Error, bool IsDryRun);

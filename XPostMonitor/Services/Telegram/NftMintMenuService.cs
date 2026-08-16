@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Numerics;
 using Nethereum.Web3;
 using XPostMonitor.Dtos;
 using XPostMonitor.Models;
@@ -21,6 +22,11 @@ public sealed class NftMintMenuService
     private readonly ConcurrentDictionary<long,
         (decimal Amount, NftWalletGroup Group, long[] WalletIds)> preparedFunding = new();
     private readonly ConcurrentDictionary<long, HashSet<long>> selectedFundingWallets = new();
+    private readonly ConcurrentDictionary<long, NftSweepPlan> preparedSweeps = new();
+    private readonly ConcurrentDictionary<long, HashSet<long>> selectedSweepWallets = new();
+    private readonly ConcurrentDictionary<long,
+        (NftWalletGroup Group, long[] WalletIds)> preparedDeletes = new();
+    private readonly ConcurrentDictionary<long, HashSet<long>> selectedDeleteWallets = new();
     private readonly ConcurrentDictionary<long, NftWalletGroup> selectedGroups = new();
     private readonly ConcurrentDictionary<long, string> collectionLinks = new();
     private readonly ConcurrentDictionary<long, int[]> selectedMintWalletSlots = new();
@@ -180,7 +186,128 @@ public sealed class NftMintMenuService
             }
             return;
         }
+        if (action == "sweep")
+        {
+            selectedSweepWallets[chatId] = [];
+            await ShowSweepWalletsAsync(chatId, messageId, language, cancellationToken);
+            return;
+        }
+        if (action.StartsWith("sweeptoggle", StringComparison.Ordinal)
+            && long.TryParse(action[11..], out long sweepWalletId))
+        {
+            HashSet<long> selected = selectedSweepWallets.GetOrAdd(chatId, _ => []);
+            if (!selected.Add(sweepWalletId)) selected.Remove(sweepWalletId);
+            await ShowSweepWalletsAsync(chatId, messageId, language, cancellationToken);
+            return;
+        }
+        if (action is "sweepall" or "sweepnone")
+        {
+            HashSet<long> selected = selectedSweepWallets.GetOrAdd(chatId, _ => []);
+            selected.Clear();
+            if (action == "sweepall")
+            {
+                IReadOnlyList<NftWalletInfo> list = await wallets.ListAsync(chatId,
+                    SelectedGroup(chatId), cancellationToken);
+                foreach (NftWalletInfo wallet in list.Where(x => x.SlotNumber > 0 && x.IsEnabled))
+                    selected.Add(wallet.Id);
+            }
+            await ShowSweepWalletsAsync(chatId, messageId, language, cancellationToken);
+            return;
+        }
+        if (action == "sweepnext")
+        {
+            if (!selectedSweepWallets.TryGetValue(chatId, out HashSet<long>? selected)
+                || selected.Count == 0)
+            {
+                await ShowSweepWalletsAsync(chatId, messageId, language, cancellationToken,
+                    text.Get(language, "NftSelectSweepWalletRequired"));
+                return;
+            }
+            try
+            {
+                await telegram.EditButtonsAsync(chatId, messageId,
+                    text.Get(language, "NftSweepPreparing"),
+                    Array.Empty<IReadOnlyList<TelegramInlineButton>>(), cancellationToken);
+                NftSweepPlan plan = await mintService.PrepareSweepAsync(chatId,
+                    SelectedGroup(chatId), selected.ToArray(), cancellationToken);
+                preparedSweeps[chatId] = plan;
+                await ShowSweepPreviewAsync(chatId, messageId, language, plan, cancellationToken);
+            }
+            catch (Exception exception) { await SendErrorAsync(chatId, language, exception, cancellationToken); }
+            return;
+        }
+        if (action == "sweepconfirm")
+        {
+            if (!preparedSweeps.TryRemove(chatId, out NftSweepPlan? plan)) return;
+            await SweepAsync(chatId, messageId, language, plan, cancellationToken);
+            return;
+        }
         if (action == "mintconfirm") { await MintAsync(chatId, messageId, language, cancellationToken); return; }
+        if (action == "deletebulk")
+        {
+            selectedDeleteWallets[chatId] = [];
+            await ShowDeleteWalletsAsync(chatId, messageId, language, cancellationToken);
+            return;
+        }
+        if (action.StartsWith("deletetoggle", StringComparison.Ordinal)
+            && long.TryParse(action[12..], out long deleteWalletId))
+        {
+            HashSet<long> selected = selectedDeleteWallets.GetOrAdd(chatId, _ => []);
+            if (!selected.Add(deleteWalletId)) selected.Remove(deleteWalletId);
+            await ShowDeleteWalletsAsync(chatId, messageId, language, cancellationToken);
+            return;
+        }
+        if (action is "deleteall" or "deletenone")
+        {
+            HashSet<long> selected = selectedDeleteWallets.GetOrAdd(chatId, _ => []);
+            selected.Clear();
+            if (action == "deleteall")
+            {
+                IReadOnlyList<NftWalletInfo> list = await wallets.ListAsync(chatId,
+                    SelectedGroup(chatId), cancellationToken);
+                foreach (NftWalletInfo wallet in list.Where(x => x.SlotNumber > 0))
+                    selected.Add(wallet.Id);
+            }
+            await ShowDeleteWalletsAsync(chatId, messageId, language, cancellationToken);
+            return;
+        }
+        if (action == "deletenext")
+        {
+            if (!selectedDeleteWallets.TryGetValue(chatId, out HashSet<long>? selected)
+                || selected.Count == 0)
+            {
+                await ShowDeleteWalletsAsync(chatId, messageId, language, cancellationToken,
+                    text.Get(language, "NftSelectDeleteWalletRequired"));
+                return;
+            }
+            NftWalletGroup group = SelectedGroup(chatId);
+            IReadOnlyList<NftWalletInfo> list = await wallets.ListAsync(chatId, group,
+                cancellationToken);
+            List<NftWalletInfo> targets = list.Where(x => x.SlotNumber > 0
+                && selected.Contains(x.Id)).ToList();
+            if (targets.Count == 0) return;
+            preparedDeletes[chatId] = (group, targets.Select(x => x.Id).ToArray());
+            string details = string.Join('\n', targets.Select(x =>
+                $"V{x.SlotNumber}: {Short(x.Address)} · "
+                + $"{x.BalanceEth?.ToString("0.########", CultureInfo.InvariantCulture) ?? "?"} ETH"));
+            await telegram.EditButtonsAsync(chatId, messageId,
+                text.Get(language, "NftBulkDeleteConfirm", GroupName(language, group),
+                    targets.Count, details),
+                [[new TelegramInlineButton(text.Get(language, "Confirm"), "nft:deletebulkconfirm")],
+                 [new TelegramInlineButton(text.Get(language, "Cancel"), "nft:open")]], cancellationToken);
+            return;
+        }
+        if (action == "deletebulkconfirm")
+        {
+            if (!preparedDeletes.TryRemove(chatId, out var deletion)) return;
+            int deleted = await wallets.DeleteManyAsync(chatId, deletion.Group,
+                deletion.WalletIds, cancellationToken);
+            selectedDeleteWallets.TryRemove(chatId, out _);
+            await telegram.EditButtonsAsync(chatId, messageId,
+                text.Get(language, "NftBulkDeleteDone", deleted),
+                [[new TelegramInlineButton(text.Get(language, "Back"), "nft:open")]], cancellationToken);
+            return;
+        }
         if (action == "exportallask")
         {
             await telegram.EditButtonsAsync(chatId, messageId, text.Get(language, "NftExportConfirm"),
@@ -375,9 +502,11 @@ public sealed class NftMintMenuService
             [new TelegramInlineButton(text.Get(language, "NftCreateSub"), "nft:createsub"),
              new TelegramInlineButton(text.Get(language, "NftImportSub"), "nft:importsub")],
             [new TelegramInlineButton(text.Get(language, "NftFundWallets"), "nft:fund"),
-             new TelegramInlineButton(text.Get(language, "NftMintButton"), "nft:link")],
-            [new TelegramInlineButton(text.Get(language, "NftPortfolioButton"), "nft:portfolio")],
-            [new TelegramInlineButton(text.Get(language, "NftExportExcel"), "nft:exportallask")]
+             new TelegramInlineButton(text.Get(language, "NftSweepWallets"), "nft:sweep")],
+            [new TelegramInlineButton(text.Get(language, "NftMintButton"), "nft:link"),
+             new TelegramInlineButton(text.Get(language, "NftPortfolioButton"), "nft:portfolio")],
+            [new TelegramInlineButton(text.Get(language, "NftBulkDelete"), "nft:deletebulk"),
+             new TelegramInlineButton(text.Get(language, "NftExportExcel"), "nft:exportallask")]
         ];
         if (mainWallet == null)
             buttons.Insert(1,
@@ -489,6 +618,120 @@ public sealed class NftMintMenuService
         if (mintWallets.Count == 0) message += "\n\n" + text.Get(language, "NftGroupEmpty");
         if (!string.IsNullOrWhiteSpace(notice)) message += "\n\n" + notice;
         await telegram.EditButtonsAsync(chatId, messageId, message, buttons, cancellationToken);
+    }
+
+    private async Task ShowSweepWalletsAsync(long chatId, long messageId, string language,
+        CancellationToken cancellationToken, string? notice = null)
+    {
+        NftWalletGroup group = SelectedGroup(chatId);
+        IReadOnlyList<NftWalletInfo> walletList = await wallets.ListAsync(chatId, group,
+            cancellationToken);
+        List<NftWalletInfo> mintWallets = walletList
+            .Where(x => x.SlotNumber > 0 && x.IsEnabled).ToList();
+        HashSet<long> selected = selectedSweepWallets.GetOrAdd(chatId, _ => []);
+        HashSet<long> validIds = mintWallets.Select(x => x.Id).ToHashSet();
+        selected.RemoveWhere(id => !validIds.Contains(id));
+
+        List<IReadOnlyList<TelegramInlineButton>> buttons = [];
+        foreach (NftWalletInfo wallet in mintWallets)
+        {
+            string balance = wallet.BalanceEth?.ToString("0.########", CultureInfo.InvariantCulture) ?? "?";
+            string mark = selected.Contains(wallet.Id) ? "✅ " : "☐ ";
+            buttons.Add([new TelegramInlineButton(
+                mark + text.Get(language, "NftFundingWallet", wallet.SlotNumber, balance),
+                "nft:sweeptoggle" + wallet.Id)]);
+        }
+        buttons.Add(
+        [
+            new TelegramInlineButton(text.Get(language, "NftSelectAll"), "nft:sweepall"),
+            new TelegramInlineButton(text.Get(language, "NftClearSelection"), "nft:sweepnone")
+        ]);
+        buttons.Add([new TelegramInlineButton(text.Get(language, "NftContinue"), "nft:sweepnext")]);
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Back"), "nft:open")]);
+
+        string message = text.Get(language, "NftChooseSweepWallets", GroupName(language, group),
+            selected.Count);
+        if (mintWallets.Count == 0) message += "\n\n" + text.Get(language, "NftGroupEmpty");
+        if (!string.IsNullOrWhiteSpace(notice)) message += "\n\n" + notice;
+        await telegram.EditButtonsAsync(chatId, messageId, message, buttons, cancellationToken);
+    }
+
+    private async Task ShowDeleteWalletsAsync(long chatId, long messageId, string language,
+        CancellationToken cancellationToken, string? notice = null)
+    {
+        NftWalletGroup group = SelectedGroup(chatId);
+        IReadOnlyList<NftWalletInfo> walletList = await wallets.ListAsync(chatId, group,
+            cancellationToken);
+        List<NftWalletInfo> mintWallets = walletList.Where(x => x.SlotNumber > 0).ToList();
+        HashSet<long> selected = selectedDeleteWallets.GetOrAdd(chatId, _ => []);
+        HashSet<long> validIds = mintWallets.Select(x => x.Id).ToHashSet();
+        selected.RemoveWhere(id => !validIds.Contains(id));
+
+        List<IReadOnlyList<TelegramInlineButton>> buttons = [];
+        foreach (NftWalletInfo wallet in mintWallets)
+        {
+            string balance = wallet.BalanceEth?.ToString("0.########", CultureInfo.InvariantCulture) ?? "?";
+            string mark = selected.Contains(wallet.Id) ? "✅ " : "☐ ";
+            buttons.Add([new TelegramInlineButton(
+                mark + text.Get(language, "NftFundingWallet", wallet.SlotNumber, balance),
+                "nft:deletetoggle" + wallet.Id)]);
+        }
+        buttons.Add(
+        [
+            new TelegramInlineButton(text.Get(language, "NftSelectAll"), "nft:deleteall"),
+            new TelegramInlineButton(text.Get(language, "NftClearSelection"), "nft:deletenone")
+        ]);
+        buttons.Add([new TelegramInlineButton(text.Get(language, "NftContinue"), "nft:deletenext")]);
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Back"), "nft:open")]);
+
+        string message = text.Get(language, "NftChooseDeleteWallets", GroupName(language, group),
+            selected.Count);
+        if (mintWallets.Count == 0) message += "\n\n" + text.Get(language, "NftGroupEmpty");
+        if (!string.IsNullOrWhiteSpace(notice)) message += "\n\n" + notice;
+        await telegram.EditButtonsAsync(chatId, messageId, message, buttons, cancellationToken);
+    }
+
+    private async Task ShowSweepPreviewAsync(long chatId, long messageId, string language,
+        NftSweepPlan plan, CancellationToken cancellationToken)
+    {
+        int transferable = plan.Items.Count(x => x.TransferWei > 0);
+        BigInteger total = plan.Items.Aggregate(BigInteger.Zero, (sum, x) => sum + x.TransferWei);
+        BigInteger fees = plan.Items.Aggregate(BigInteger.Zero, (sum, x) => sum + x.EstimatedFeeWei);
+        string details = string.Join('\n', plan.Items.Select(x => text.Get(language,
+            "NftSweepPreviewWallet", x.Wallet.SlotNumber, FormatEth(x.BalanceWei),
+            FormatEth(x.TransferWei), FormatEth(x.EstimatedFeeWei))));
+        string message = text.Get(language, "NftSweepPreview", GroupName(language, plan.MintGroup),
+            plan.Items.Count, transferable, FormatEth(total), FormatEth(fees), details);
+        List<IReadOnlyList<TelegramInlineButton>> buttons = [];
+        if (transferable > 0)
+            buttons.Add([new TelegramInlineButton(text.Get(language, "Confirm"), "nft:sweepconfirm")]);
+        buttons.Add([new TelegramInlineButton(text.Get(language, "Cancel"), "nft:open")]);
+        await telegram.EditButtonsAsync(chatId, messageId, message, buttons, cancellationToken);
+    }
+
+    private async Task SweepAsync(long chatId, long messageId, string language, NftSweepPlan plan,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await telegram.EditButtonsAsync(chatId, messageId,
+                text.Get(language, "NftSweepProcessing", plan.Items.Count),
+                Array.Empty<IReadOnlyList<TelegramInlineButton>>(), cancellationToken);
+            IReadOnlyList<NftSweepOutcome> results = await mintService.ExecuteSweepAsync(plan,
+                cancellationToken);
+            selectedSweepWallets.TryRemove(chatId, out _);
+            int success = results.Count(x => x.Error == null);
+            BigInteger total = results.Where(x => x.Error == null)
+                .Aggregate(BigInteger.Zero, (sum, x) => sum + x.TransferWei);
+            string details = string.Join('\n', results.Select(x => x.Error == null
+                ? text.Get(language, "NftSweepWalletSuccess", x.SlotNumber,
+                    FormatEth(x.TransferWei), x.TransactionHash ?? "DRY-RUN")
+                : text.Get(language, "NftSweepWalletFailed", x.SlotNumber, x.Error!)));
+            await telegram.EditButtonsAsync(chatId, messageId,
+                text.Get(language, "NftSweepDone", success, results.Count, FormatEth(total), details),
+                [[new TelegramInlineButton(text.Get(language, "Back"), "nft:open")]], cancellationToken);
+        }
+        catch (Exception exception) { await SendErrorAsync(chatId, language, exception, cancellationToken); }
     }
 
     private async Task MintAsync(long chatId, long messageId, string language,
@@ -697,4 +940,7 @@ public sealed class NftMintMenuService
     }
 
     private static string Short(string address) => address.Length < 12 ? address : address[..6] + "..." + address[^4..];
+
+    private static string FormatEth(BigInteger wei) => Web3.Convert.FromWei(wei)
+        .ToString("0.########", CultureInfo.InvariantCulture);
 }

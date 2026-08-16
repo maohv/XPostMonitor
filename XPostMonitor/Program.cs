@@ -66,6 +66,9 @@ if (args.Contains("--nft-self-check", StringComparer.OrdinalIgnoreCase))
     if (NftMintService.SelectWalletGroup(0) != NftWalletGroup.Free
         || NftMintService.SelectWalletGroup(1) != NftWalletGroup.Paid)
         throw new InvalidOperationException("NFT wallet group self-check failed.");
+    if (NftMintService.CalculateSweepAmount(100_000, 42_000) != 58_000
+        || NftMintService.CalculateSweepAmount(40_000, 42_000) != 0)
+        throw new InvalidOperationException("NFT sweep calculation self-check failed.");
     int[] selectedSlots = NftMintMenuService.ParseWalletSlots("1-3,5,8-9");
     if (NftMintMenuService.FormatWalletSlots(selectedSlots) != "1-3,5,8-9")
         throw new InvalidOperationException("NFT wallet selection self-check failed.");
