@@ -23,7 +23,7 @@ public sealed class NftMintService
     }
 
     public async Task<NftMintPlan> PrepareAsync(long chatId, string url, NftMintMode mode, int value,
-        CancellationToken cancellationToken)
+        IReadOnlyCollection<int> selectedWalletSlots, CancellationToken cancellationToken)
     {
         if (value is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(value));
         OpenSeaCollection collection = await openSea.GetCollectionAsync(url, cancellationToken);
@@ -31,8 +31,14 @@ public sealed class NftMintService
         NftWalletGroup mintGroup = SelectWalletGroup(drop.MintPriceWei);
         IReadOnlyList<NftMintWallet> mintWallets = await wallets.GetMintWalletsAsync(chatId,
             mintGroup, cancellationToken);
-        if (mintWallets.Count == 0)
-            throw new InvalidOperationException($"Chưa có ví mint trong nhóm {mintGroup}.");
+        HashSet<int> requestedSlots = selectedWalletSlots.ToHashSet();
+        mintWallets = mintWallets.Where(x => requestedSlots.Contains(x.SlotNumber)).ToList();
+        int[] unavailableSlots = requestedSlots.Except(mintWallets.Select(x => x.SlotNumber))
+            .OrderBy(x => x).ToArray();
+        if (unavailableSlots.Length > 0)
+            throw new InvalidOperationException("Ví " + string.Join(", ", unavailableSlots)
+                + $" không tồn tại hoặc không thuộc nhóm {mintGroup}.");
+        if (mintWallets.Count == 0) throw new InvalidOperationException("Chưa chọn ví mint NFT.");
 
         IReadOnlyList<NftMintPlanItem> items = BuildItems(mintWallets, mode, value);
         foreach (IGrouping<long, NftMintPlanItem> group in items.GroupBy(x => x.Wallet.Id))

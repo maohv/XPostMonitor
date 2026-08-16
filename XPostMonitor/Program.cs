@@ -66,6 +66,23 @@ if (args.Contains("--nft-self-check", StringComparer.OrdinalIgnoreCase))
     if (NftMintService.SelectWalletGroup(0) != NftWalletGroup.Free
         || NftMintService.SelectWalletGroup(1) != NftWalletGroup.Paid)
         throw new InvalidOperationException("NFT wallet group self-check failed.");
+    int[] selectedSlots = NftMintMenuService.ParseWalletSlots("1-3,5,8-9");
+    if (NftMintMenuService.FormatWalletSlots(selectedSlots) != "1-3,5,8-9")
+        throw new InvalidOperationException("NFT wallet selection self-check failed.");
+    byte[] excel = NftWalletExcelExporter.Create(
+        [new NftWalletExportRow("Free", 1, key.Address, key.PrivateKey)]);
+    using (System.IO.Compression.ZipArchive workbook = new(new MemoryStream(excel),
+        System.IO.Compression.ZipArchiveMode.Read))
+    {
+        System.IO.Compression.ZipArchiveEntry? sheetEntry = workbook.GetEntry("xl/worksheets/sheet1.xml");
+        if (sheetEntry == null)
+            throw new InvalidOperationException("NFT Excel export self-check failed.");
+        using Stream sheetStream = sheetEntry.Open();
+        System.Xml.Linq.XDocument sheet = System.Xml.Linq.XDocument.Load(sheetStream);
+        System.Xml.Linq.XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        if (sheet.Descendants(ns + "row").Count() != 2 || !sheet.ToString().Contains(key.Address))
+            throw new InvalidOperationException("NFT Excel content self-check failed.");
+    }
     Console.WriteLine("NFT self-check passed. No transaction was sent.");
     return;
 }

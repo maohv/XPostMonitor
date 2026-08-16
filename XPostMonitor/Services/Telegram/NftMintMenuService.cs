@@ -23,6 +23,7 @@ public sealed class NftMintMenuService
     private readonly ConcurrentDictionary<long, HashSet<long>> selectedFundingWallets = new();
     private readonly ConcurrentDictionary<long, NftWalletGroup> selectedGroups = new();
     private readonly ConcurrentDictionary<long, string> collectionLinks = new();
+    private readonly ConcurrentDictionary<long, int[]> selectedMintWalletSlots = new();
     private readonly ConcurrentDictionary<long, (NftMintMode Mode, int Value)> mintChoices = new();
     private readonly ConcurrentDictionary<long, NftMintPlan> mintPlans = new();
     private readonly ConcurrentDictionary<long, long> pendingMessageIds = new();
@@ -61,7 +62,7 @@ public sealed class NftMintMenuService
             catch (Exception exception) { await SendErrorAsync(chatId, language, exception, cancellationToken); }
             await ShowAsync(chatId, messageId, language, cancellationToken); return;
         }
-        if (action.StartsWith("createsub:", StringComparison.Ordinal))
+        if (action == "createsub")
         {
             pendingInputs[chatId] = action + ":" + SelectedGroup(chatId);
             pendingMessageIds[chatId] = messageId;
@@ -139,6 +140,7 @@ public sealed class NftMintMenuService
         }
         if (action == "link")
         {
+            selectedMintWalletSlots.TryRemove(chatId, out _);
             pendingInputs[chatId] = action;
             pendingMessageIds[chatId] = messageId;
             await ShowPromptAsync(chatId, messageId, text.Get(language, "NftSendOpenSeaLink"), language,
@@ -179,6 +181,18 @@ public sealed class NftMintMenuService
             return;
         }
         if (action == "mintconfirm") { await MintAsync(chatId, messageId, language, cancellationToken); return; }
+        if (action == "exportallask")
+        {
+            await telegram.EditButtonsAsync(chatId, messageId, text.Get(language, "NftExportConfirm"),
+                [[new TelegramInlineButton(text.Get(language, "Confirm"), "nft:exportallconfirm")],
+                 [new TelegramInlineButton(text.Get(language, "Cancel"), "nft:open")]], cancellationToken);
+            return;
+        }
+        if (action == "exportallconfirm")
+        {
+            await ExportAllMintWalletsAsync(chatId, messageId, language, cancellationToken);
+            return;
+        }
         if (action.StartsWith("export", StringComparison.Ordinal) && long.TryParse(action[6..], out long exportId))
         {
             EvmWalletCredentials? wallet = await wallets.GetByIdAsync(chatId, exportId, cancellationToken);
@@ -213,7 +227,7 @@ public sealed class NftMintMenuService
         CancellationToken cancellationToken)
     {
         if (!pendingInputs.TryRemove(message.Chat.Id, out string? action) || message.Text == null) return false;
-        if (action == "createsub")
+        if (action.StartsWith("createsub:", StringComparison.Ordinal))
         {
             if (!int.TryParse(message.Text.Trim(), out int count) || count is < 1 or > 30)
             {
@@ -285,8 +299,28 @@ public sealed class NftMintMenuService
             catch (Exception exception) { await SendErrorAsync(message.Chat.Id, language, exception, cancellationToken); return true; }
             collectionLinks[message.Chat.Id] = message.Text.Trim();
             await SafeDeleteAsync(message.Chat.Id, message.MessageId, cancellationToken);
+            long menuMessageId = TakePendingMessageId(message.Chat.Id)!.Value;
+            pendingInputs[message.Chat.Id] = "mintwallets";
+            pendingMessageIds[message.Chat.Id] = menuMessageId;
+            await ShowPromptAsync(message.Chat.Id, menuMessageId,
+                text.Get(language, "NftSendMintWalletSelection"), language, cancellationToken);
+            return true;
+        }
+        if (action == "mintwallets")
+        {
+            int[] slots;
+            try { slots = ParseWalletSlots(message.Text); }
+            catch (ArgumentException)
+            {
+                pendingInputs[message.Chat.Id] = action;
+                await telegram.SendMessageAsync(message.Chat.Id,
+                    text.Get(language, "NftInvalidMintWalletSelection"), cancellationToken);
+                return true;
+            }
+            selectedMintWalletSlots[message.Chat.Id] = slots;
+            await SafeDeleteAsync(message.Chat.Id, message.MessageId, cancellationToken);
             await telegram.EditButtonsAsync(message.Chat.Id, TakePendingMessageId(message.Chat.Id)!.Value,
-                text.Get(language, "NftChooseMode"),
+                text.Get(language, "NftChooseModeForWallets", FormatWalletSlots(slots), slots.Length),
                 [[new TelegramInlineButton(text.Get(language, "NftModeFixed"), "nft:modefixed")],
                  [new TelegramInlineButton(text.Get(language, "NftModeRandom"), "nft:moderandom")],
                  [new TelegramInlineButton(text.Get(language, "NftModeRound"), "nft:moderound")],
@@ -342,7 +376,8 @@ public sealed class NftMintMenuService
              new TelegramInlineButton(text.Get(language, "NftImportSub"), "nft:importsub")],
             [new TelegramInlineButton(text.Get(language, "NftFundWallets"), "nft:fund"),
              new TelegramInlineButton(text.Get(language, "NftMintButton"), "nft:link")],
-            [new TelegramInlineButton(text.Get(language, "NftPortfolioButton"), "nft:portfolio")]
+            [new TelegramInlineButton(text.Get(language, "NftPortfolioButton"), "nft:portfolio")],
+            [new TelegramInlineButton(text.Get(language, "NftExportExcel"), "nft:exportallask")]
         ];
         if (mainWallet == null)
             buttons.Insert(1,
@@ -373,12 +408,15 @@ public sealed class NftMintMenuService
     private async Task PrepareMintAsync(long chatId, long? messageId, string language,
         NftMintMode mode, int value, CancellationToken cancellationToken)
     {
-        if (!collectionLinks.TryGetValue(chatId, out string? link)) return;
+        if (!collectionLinks.TryGetValue(chatId, out string? link)
+            || !selectedMintWalletSlots.TryGetValue(chatId, out int[]? selectedSlots)) return;
         try
         {
             await NftDiagnosticLog.WriteAsync(
-                $"Chuẩn bị mint ChatId={chatId}, Mode={mode}, Value={value}, Link={link}");
-            NftMintPlan plan = await mintService.PrepareAsync(chatId, link, mode, value, cancellationToken);
+                $"Chuẩn bị mint ChatId={chatId}, Ví={FormatWalletSlots(selectedSlots)}, "
+                + $"Mode={mode}, Value={value}, Link={link}");
+            NftMintPlan plan = await mintService.PrepareAsync(chatId, link, mode, value,
+                selectedSlots, cancellationToken);
             mintPlans[chatId] = plan;
             string perWallet = string.Join(", ", plan.Items.GroupBy(x => x.Wallet.SlotNumber)
                 .Select(x => $"V{x.Key}:{x.Sum(i => i.Quantity)}"));
@@ -392,7 +430,8 @@ public sealed class NftMintMenuService
             string message = text.Get(language, "NftMintPlanConfirm",
                 plan.Drop.Collection.Name, ModeName(language, mode), perWallet, plan.TotalQuantity,
                 Web3.Convert.FromWei(plan.Drop.MintPriceWei), Web3.Convert.FromWei(plan.TotalValueWei),
-                GroupName(language, plan.MintGroup));
+                GroupName(language, plan.MintGroup), FormatWalletSlots(selectedSlots),
+                plan.Items.Select(x => x.Wallet.Id).Distinct().Count());
             if (messageId.HasValue)
                 await telegram.EditButtonsAsync(chatId, messageId.Value, message, buttons, cancellationToken);
             else
@@ -544,6 +583,32 @@ public sealed class NftMintMenuService
         }
     }
 
+    private async Task ExportAllMintWalletsAsync(long chatId, long messageId, string language,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            List<NftWalletExportRow> rows = [];
+            foreach (NftWalletGroup group in Enum.GetValues<NftWalletGroup>())
+            {
+                IReadOnlyList<NftMintWallet> groupWallets = await wallets.GetMintWalletsAsync(chatId, group,
+                    cancellationToken);
+                rows.AddRange(groupWallets.Select(wallet => new NftWalletExportRow(group.ToString(),
+                    wallet.SlotNumber, wallet.Credentials.Address, wallet.Credentials.PrivateKey)));
+            }
+            rows = rows.OrderBy(x => x.WalletNumber).ToList();
+            if (rows.Count == 0) throw new InvalidOperationException(text.Get(language, "NftNoWallet"));
+
+            await telegram.SendDocumentAsync(chatId, NftWalletExcelExporter.Create(rows),
+                $"nft-mint-wallets-{DateTime.UtcNow:yyyyMMdd-HHmmss}.xlsx",
+                text.Get(language, "NftExportWarning"), cancellationToken);
+            await telegram.EditButtonsAsync(chatId, messageId,
+                text.Get(language, "NftExportDone", rows.Count),
+                [[new TelegramInlineButton(text.Get(language, "Back"), "nft:open")]], cancellationToken);
+        }
+        catch (Exception exception) { await SendErrorAsync(chatId, language, exception, cancellationToken); }
+    }
+
     private string ModeName(string language, NftMintMode mode) => text.Get(language, mode switch
     {
         NftMintMode.Fixed => "NftModeFixed",
@@ -557,6 +622,39 @@ public sealed class NftMintMenuService
     private static NftWalletGroup ReadGroup(string action) =>
         Enum.TryParse(action[(action.IndexOf(':') + 1)..], out NftWalletGroup group)
             ? group : NftWalletGroup.Free;
+
+    internal static int[] ParseWalletSlots(string input)
+    {
+        HashSet<int> slots = [];
+        foreach (string part in input.Split(',', StringSplitOptions.RemoveEmptyEntries
+            | StringSplitOptions.TrimEntries))
+        {
+            string[] range = part.Split('-', StringSplitOptions.TrimEntries);
+            if (range.Length is < 1 or > 2 || !int.TryParse(range[0], out int start)
+                || start is < 1 or > 1000)
+                throw new ArgumentException("Invalid wallet selection.");
+            int end = start;
+            if (range.Length == 2 && (!int.TryParse(range[1], out end)
+                || end < start || end > 1000))
+                throw new ArgumentException("Invalid wallet selection.");
+            for (int slot = start; slot <= end; slot++) slots.Add(slot);
+        }
+        if (slots.Count == 0) throw new ArgumentException("Invalid wallet selection.");
+        return slots.OrderBy(x => x).ToArray();
+    }
+
+    internal static string FormatWalletSlots(IReadOnlyCollection<int> slots)
+    {
+        int[] ordered = slots.Distinct().OrderBy(x => x).ToArray();
+        List<string> ranges = [];
+        for (int index = 0; index < ordered.Length;)
+        {
+            int start = ordered[index], end = start;
+            while (++index < ordered.Length && ordered[index] == end + 1) end = ordered[index];
+            ranges.Add(start == end ? start.ToString() : $"{start}-{end}");
+        }
+        return string.Join(",", ranges);
+    }
 
     private string GroupName(string language, NftWalletGroup group) => text.Get(language,
         group == NftWalletGroup.Free ? "NftFreeWallets" : "NftPaidWallets");

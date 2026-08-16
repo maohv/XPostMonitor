@@ -146,6 +146,23 @@ public sealed class TelegramApiClient
         await CheckResponseAsync(response, cancellationToken);
     }
 
+    // Gửi file được tạo trong RAM; bot không cần lưu private key xuống ổ đĩa server.
+    public async Task SendDocumentAsync(long chatId, byte[] document, string fileName, string caption,
+        CancellationToken cancellationToken)
+    {
+        using MultipartFormDataContent form = new();
+        using ByteArrayContent documentContent = new(document);
+        documentContent.Headers.ContentType = new MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        form.Add(new StringContent(chatId.ToString()), "chat_id");
+        form.Add(new StringContent(caption), "caption");
+        form.Add(documentContent, "document", fileName);
+
+        using HttpResponseMessage response = await httpClient.PostAsync(GetUrl("sendDocument"), form,
+            cancellationToken);
+        await CheckResponseAsync(response, cancellationToken);
+    }
+
     // Gửi ảnh trực tiếp từ URL, dùng cho avatar gốc của X.
     public async Task SendPhotoAsync(long chatId, string photoUrl, string caption, CancellationToken cancellationToken)
     {
